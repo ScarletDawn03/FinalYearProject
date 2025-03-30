@@ -1,4 +1,4 @@
-#Importing the required libraries
+# Importing the required libraries
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -9,7 +9,7 @@ from sklearn.metrics import mean_absolute_error
 from sklearn.metrics import mean_absolute_percentage_error
 
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropout, Input
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.optimizers import Adam, RMSprop
 
@@ -18,22 +18,25 @@ import csv
 
 from itertools import combinations
 
-#Error Supression
-
+# Error Suppression
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 from sklearn.model_selection import ParameterGrid
 
-# Define the fixed hyperparameters
-fixed_params = {
-    'lstm_units': 100,  # Number of units in LSTM layers
-    'dropout_rate': 0.2,  # Dropout rate
-    'learning_rate': 0.001,  # Learning rate
-    'batch_size': 32,  # Batch size
-    'epochs': 50,  # Number of epochs
-    'optimizer': 'adam'  # Optimizer
+# Define the hyperparameter grid
+param_grid = {
+    'filters': [32, 64],
+    'kernel_size': [3, 5],
+    'dropout_rate': [0.2, 0.3],
+    'learning_rate': [0.001, 0.01],
+    'batch_size': [32, 64],
+    'epochs': [20, 50],
+    'optimizer': ['adam', 'rmsprop']
 }
+
+# Convert the grid to a list of parameter combinations
+param_combinations = list(ParameterGrid(param_grid))
 
 def download_stock_data(ticker, start_date='2010-01-01', end_date='2024-12-31'):
     # Calculate extra buffer period (e.g., 1 year)
@@ -64,7 +67,6 @@ def download_stock_data(ticker, start_date='2010-01-01', end_date='2024-12-31'):
     print(dates_to_remove)
 
     return data
-
 
 def add_technical_indicators(ticker, df):
     # Ensure calculations don't cause issues with chained assignments
@@ -130,11 +132,10 @@ def add_technical_indicators(ticker, df):
 
     folder_name = "check"
     os.makedirs(folder_name, exist_ok=True)
-    filename = os.path.join(folder_name, f"{ticker}_LSTM.csv")
+    filename = os.path.join(folder_name, f"{ticker}_CNN.csv")
     df.to_csv(filename, index=False)
 
     return df  # Original DataFrame is modified, so return is optional
-
 
 def normalize_data(df):
     all_indicators = [
@@ -181,30 +182,35 @@ def split_data(X, y, train_size=0.7, val_size=0.1, test_size=0.2):
 
     return X_train, X_val, X_test, y_train, y_val, y_test
 
-# Function to create an LSTM model with fixed hyperparameters
-def create_lstm_model(input_shape, params=fixed_params):
+def create_cnn_model(input_shape, filters=64, kernel_size=3, dropout_rate=0.2, learning_rate=0.001, optimizer='adam'):
+
     # Initialize the model
     model = Sequential()
 
     # Add Input layer
     model.add(Input(shape=input_shape))
 
-    # First LSTM layer
-    model.add(LSTM(units=params['lstm_units'], return_sequences=True))
-    model.add(Dropout(rate=params['dropout_rate']))
+    # First Conv1D layer
+    model.add(Conv1D(filters=filters, kernel_size=kernel_size, activation='relu'))
+    model.add(MaxPooling1D(pool_size=2))
+    model.add(Dropout(rate=dropout_rate))
 
-    # Second LSTM layer
-    model.add(LSTM(units=params['lstm_units'], return_sequences=False))
-    model.add(Dropout(rate=params['dropout_rate']))
+    # Second Conv1D layer
+    model.add(Conv1D(filters=filters, kernel_size=kernel_size, activation='relu'))
+    model.add(MaxPooling1D(pool_size=2))
+    model.add(Dropout(rate=dropout_rate))
+
+    # Flatten the output
+    model.add(Flatten())
 
     # Output layer
     model.add(Dense(units=1))  # Assuming you're predicting a single value
 
     # Choose optimizer
-    if params['optimizer'] == 'adam':
-        opt = Adam(learning_rate=params['learning_rate'])
-    elif params['optimizer'] == 'rmsprop':
-        opt = RMSprop(learning_rate=params['learning_rate'])
+    if optimizer == 'adam':
+        opt = Adam(learning_rate=learning_rate)
+    elif optimizer == 'rmsprop':
+        opt = RMSprop(learning_rate=learning_rate)
     else:
         raise ValueError("Optimizer must be 'adam' or 'rmsprop'.")
 
@@ -230,79 +236,77 @@ for ticker in tickers:
     df = add_technical_indicators(ticker, df)
     df, all_scaled_data = normalize_data(df)
 
-    output_file = os.path.join(output_folder, f"{ticker}_results_LSTM.csv")
+    output_file = os.path.join(output_folder, f"{ticker}_results_CNN.csv")
 
     with open(output_file, mode='w', newline='') as file:
-        header = ["Ticker", "Indicators", "LSTM Units", "Dropout Rate", "Learning Rate", "Batch Size", "Epochs", "Optimizer", "MSE", "RMSE", "MAE", "MAPE"]
+        header = ["Ticker", "Indicators", "Filters", "Kernel Size", "Dropout Rate", "Learning Rate", "Batch Size", "Epochs", "Optimizer", "MSE", "RMSE", "MAE", "MAPE"]
         writer = csv.writer(file)
         writer.writerow(header)  # Write header
 
         for selected_indicators, scaled_data in all_scaled_data.items():
-            print(f"Training with indicators: {selected_indicators} and fixed parameters: {fixed_params}")
-            X, y = create_time_series_data(df, scaled_data)
+            for params in param_combinations:  # Loop through hyperparameter combinations
+                print(f"Training with indicators: {selected_indicators} and parameters: {params}")
+                X, y = create_time_series_data(df, scaled_data)
 
-            X_train, X_val, X_test, y_train, y_val, y_test = split_data(X, y)
+                X_train, X_val, X_test, y_train, y_val, y_test = split_data(X, y)
 
-            # Scale target values (y)
-            scaler_y = MinMaxScaler(feature_range=(0, 1))
-            y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
-            y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
-            y_test_scaled = scaler_y.transform(y_test.reshape(-1, 1))
+                # Scale target values (y)
+                scaler_y = MinMaxScaler(feature_range=(0, 1))
+                y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
+                y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
+                y_test_scaled = scaler_y.transform(y_test.reshape(-1, 1))
 
-            input_shape = (X_train.shape[1], X_train.shape[2])  # Input shape for LSTM
+                input_shape = (X_train.shape[1], X_train.shape[2])
+                
+                # Create and train the model with the current hyperparameters
+                model = create_cnn_model(
+                    input_shape=input_shape,
+                    filters=params['filters'],
+                    kernel_size=params['kernel_size'],
+                    dropout_rate=params['dropout_rate'],
+                    learning_rate=params['learning_rate'],
+                    optimizer=params['optimizer']
+                )
 
-            # Create and train the model with the fixed hyperparameters
-            model = create_lstm_model(input_shape=input_shape)
+                early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
 
-            early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+                history = model.fit(
+                    X_train, y_train_scaled,
+                    epochs=params['epochs'],
+                    batch_size=params['batch_size'],
+                    validation_data=(X_val, y_val_scaled),
+                    callbacks=[early_stopping],
+                    verbose=0
+                )
 
-            history = model.fit(
-                X_train, y_train_scaled,
-                epochs=fixed_params['epochs'],
-                batch_size=fixed_params['batch_size'],
-                validation_data=(X_val, y_val_scaled),
-                callbacks=[early_stopping],
-                verbose=0
-            )
+                # Evaluate the model
+                y_pred_scaled = model.predict(X_test)
+                y_pred = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1))
+                y_test_original = scaler_y.inverse_transform(y_test_scaled)
 
-            # Evaluate the model
-            y_pred_scaled = model.predict(X_test)
-            y_pred = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1))
-            y_test_original = scaler_y.inverse_transform(y_test_scaled)
+                mse = mean_squared_error(y_test_original, y_pred)
+                rmse = np.sqrt(mse)
+                mae = mean_absolute_error(y_test_original, y_pred)
+                mape = mean_absolute_percentage_error(y_test_original, y_pred) * 100
 
-            mse = mean_squared_error(y_test_original, y_pred)
-            rmse = np.sqrt(mse)
-            mae = mean_absolute_error(y_test_original, y_pred)
-            mape = mean_absolute_percentage_error(y_test_original, y_pred) * 100
+                # Write the results to the CSV file
+                writer.writerow([
+                    ticker,  # Ticker symbol
+                    ', '.join(selected_indicators),  # Selected indicators
+                    params['filters'],  # Filters
+                    params['kernel_size'],  # Kernel size
+                    params['dropout_rate'],  # Dropout rate
+                    params['learning_rate'],  # Learning rate
+                    params['batch_size'],  # Batch size
+                    params['epochs'],  # Number of epochs
+                    params['optimizer'],  # Optimizer
+                    mse,  # MSE
+                    rmse,  # RMSE
+                    mae,  # MAE
+                    mape  # MAPE
+                ])
 
-            # Write the results to the CSV file
-            writer.writerow([
-                ticker,  # Ticker symbol
-                ', '.join(selected_indicators),  # Selected indicators
-                fixed_params['lstm_units'],  # LSTM units
-                fixed_params['dropout_rate'],  # Dropout rate
-                fixed_params['learning_rate'],  # Learning rate
-                fixed_params['batch_size'],  # Batch size
-                fixed_params['epochs'],  # Number of epochs
-                fixed_params['optimizer'],  # Optimizer
-                mse,  # MSE
-                rmse,  # RMSE
-                mae,  # MAE
-                mape  # MAPE
-            ])
+                # Flush the file buffer to ensure data is written
+                file.flush()
 
-            # Flush the file buffer to ensure data is written
-            file.flush()
-
-            print(f"{ticker} - RMSE: {rmse:.4f}, MSE: {mse:.4f}, MAE: {mae:.4f}, MAPE: {mape:.4f}\n")
-
-            
-            # # Plot actual vs predicted prices
-            # plt.figure(figsize=(12, 6))
-            # plt.plot(y_test_original, label="Actual Prices", color="blue", linewidth=2)
-            # plt.plot(y_pred, label="Predicted Prices", color="red", linestyle="dashed", linewidth=2)
-            # plt.title(f"{ticker} Stock Price Prediction (LSTM)")
-            # plt.xlabel("Time")
-            # plt.ylabel("Stock Price (USD)")
-            # plt.legend()
-            # plt.show()
+                print(f"{ticker} - RMSE: {rmse:.4f}, MSE: {mse:.4f}, MAE: {mae:.4f}, MAPE: {mape:.4f}\n")

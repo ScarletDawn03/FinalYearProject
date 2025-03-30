@@ -1,14 +1,15 @@
 #Importing the required libraries
-
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import mean_absolute_percentage_error
 
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import SimpleRNN, Dense, Dropout, Input
+from tensorflow.keras.layers import SimpleRNN, Dense, Dropout, Input, LeakyReLU
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.optimizers import Adam
 
@@ -20,13 +21,39 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 tf.get_logger().setLevel('ERROR')
 
-# Download stock data
-def download_stock_data(ticker, start_date='2010-01-01', end_date='2024-06-14'):
-    data = yf.download(ticker, start=start_date, end=end_date)
+
+def download_stock_data(ticker, start_date='2010-01-01', end_date='2024-12-31'):
+    # Calculate extra buffer period (e.g., 1 year)
+    buffer_start = pd.to_datetime(start_date) - pd.DateOffset(years=1)
+    
+    # Download data with buffer period
+    data = yf.download(ticker, start=buffer_start.strftime('%Y-%m-%d'), end=end_date)
+
+    # Fetch earnings report dates
+    ticker_data = yf.Ticker(ticker)
+    earnings_dates = set(pd.to_datetime(ticker_data.earnings_dates.index).normalize())  # Normalize dates
+
+    # Fetch ex-dividend dates
+    ex_dividend_dates = set(pd.to_datetime(ticker_data.dividends.index).normalize())
+
+    # Combine both sets
+    dates_to_remove = earnings_dates.union(ex_dividend_dates)
+
+    # Ensure data index is datetime and normalized
+    data.index = pd.to_datetime(data.index).normalize()
+
+    # Remove both earnings & ex-dividend dates
+    data = data[~data.index.isin(dates_to_remove)]
+
+    # Trim the dataset to the actual requested start_date
+    data = data.loc[start_date:]
+
+    print(dates_to_remove)
+
     return data
 
-# Adding technical indicators
-def add_technical_indicators(df):
+# Adding technical indicators, customization for technical indicator, compare accuracy and pick higher accuracy 
+def add_technical_indicators(ticker,df):
     df['20MA'] = df['Close'].rolling(window=20, min_periods=1).mean()
     df['50MA'] = df['Close'].rolling(window=50, min_periods=1).mean()
     df['200MA'] = df['Close'].rolling(window=200, min_periods=1).mean()
@@ -45,6 +72,14 @@ def add_technical_indicators(df):
     
     df.ffill(inplace=True)
     df.bfill(inplace=True)
+
+     # Verify no NaN values exist
+    print("Null values in each column:\n", df.isnull().sum())
+    print(f"Does the dataset contain any null values? {df.isnull().values.any()}")
+
+    filename=f"{ticker}.csv"
+    df.to_csv(filename)
+
     return df
 
 # Normalize the data
@@ -54,7 +89,7 @@ def normalize_data(df):
     return scaled_data, scaler
 
 # Prepare the time-series data
-def create_time_series_data(df, scaled_data, window_size=60):
+def create_time_series_data(df, scaled_data, window_size=120):
     X, y = [], []
     for i in range(window_size, len(df)):
         X.append(scaled_data[i-window_size:i])
@@ -62,9 +97,16 @@ def create_time_series_data(df, scaled_data, window_size=60):
     return np.array(X), np.array(y)
 
 # Split data into training and testing sets (80% training,20% testing)
-def split_data(X, y, test_size=0.2):
-    train_size = int(len(X) * (1 - test_size))
-    return X[:train_size], X[train_size:], y[:train_size], y[train_size:]
+def split_data(X, y, train_size=0.7, val_size=0.1, test_size=0.2):
+    train_end = int(len(X) * train_size)
+    val_end = train_end + int(len(X) * val_size)
+
+    X_train, y_train = X[:train_end], y[:train_end]
+    X_val, y_val = X[train_end:val_end], y[train_end:val_end]
+    X_test, y_test = X[val_end:], y[val_end:]
+
+    return X_train, X_val, X_test, y_train, y_val, y_test
+
 
 # Create RNN model
 def create_rnn_model(input_shape):
@@ -78,38 +120,60 @@ def create_rnn_model(input_shape):
     model.add(Dropout(0.2))
     #Optimizer
     model.add(Dense(units=1))
+    model.add(LeakyReLU(alpha=0.1))  # Apply LeakyReLU
+
     #Loss Function
     model.compile(optimizer=Adam(learning_rate=0.0001), loss='mean_squared_error')
     return model
 
 # Example usage
-ticker = 'AAPL'
+ticker = '5197.KL'
 df = download_stock_data(ticker)
-df = add_technical_indicators(df)
+df = add_technical_indicators(ticker,df)
+
+# print(data_check(df))
 
 scaled_data, scaler = normalize_data(df)
 X, y = create_time_series_data(df, scaled_data)
-X_train, X_test, y_train, y_test = split_data(X, y)
+X_train, X_val, X_test, y_train, y_val, y_test = split_data(X, y)
 
-y_train_scaled = scaler.fit_transform(y_train.reshape(-1, 1))
-y_test_scaled = scaler.transform(y_test.reshape(-1, 1))
+# Scale target values (y)
+scaler_y = MinMaxScaler(feature_range=(0, 1))
+y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
+y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
+y_test_scaled = scaler_y.transform(y_test.reshape(-1, 1))
 
 input_shape = (X_train.shape[1], X_train.shape[2])
 model = create_rnn_model(input_shape)
 
-early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
 
-history = model.fit(X_train, y_train_scaled, epochs=10, batch_size=32, validation_data=(X_test, y_test_scaled), callbacks=[early_stopping])
+history = model.fit(
+    X_train, y_train_scaled,
+    epochs=100, batch_size=32,
+    validation_data=(X_val, y_val_scaled),  # Now using validation set
+    callbacks=[early_stopping]
+)
+
 
 loss = model.evaluate(X_test, y_test_scaled)
 print(f"Test loss: {loss}")
 
 predictions = model.predict(X_test)
-predictions = scaler.inverse_transform(predictions.reshape(-1, 1))
+predictions = scaler_y.inverse_transform(predictions.reshape(-1, 1))
+y_test_original = scaler_y.inverse_transform(y_test_scaled)
 
-y_test_original = scaler.inverse_transform(y_test_scaled)
+
+#Compute Metrics
+mse=mean_squared_error(y_test_original,predictions)
 rmse = np.sqrt(mean_squared_error(y_test_original, predictions))
+mae =mean_absolute_error(y_test_original,predictions)
+mape=mean_absolute_percentage_error(y_test_original,predictions)
 print(f"Root Mean Square Error (RMSE): {rmse:.4f}")
+print(f"Mean Square Error (MSE):{mse:.4f}")
+print(f"Mean Absolute Error (MSE):{mae:.4f}")
+print(f"Mean Absolute Percentagae Error (MAPE):{mape:.4f}")
+
 
 import matplotlib.pyplot as plt
 plt.figure(figsize=(12, 6))
