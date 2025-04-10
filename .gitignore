@@ -1,3 +1,31 @@
 node_modules/
 .env
 venv/
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.log
+*.pyc
+
+# Virtual Environment
+newvenv/
+venv/
+
+# VS Code settings (optional)
+.vscode/
+
+# Data / Outputs
+*.csv
+check/
+stock_results/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+
+# Node.js dependencies
+node_modules/
