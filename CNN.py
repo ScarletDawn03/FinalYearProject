@@ -1,145 +1,40 @@
-# Importing the required libraries
+import os
+import csv
 import numpy as np
 import pandas as pd
 import yfinance as yf
-
+from itertools import combinations
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import mean_squared_error
-from sklearn.metrics import mean_absolute_error
-from sklearn.metrics import mean_absolute_percentage_error
-
+from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_absolute_percentage_error,  r2_score
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropout, Input
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropout
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.optimizers import Adam, RMSprop
-
 import tensorflow as tf
-import csv
 
-from itertools import combinations
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0 = all logs, 1 = filter out INFO logs, 2 = filter out WARNING logs, 3 = filter out ERROR logs
+# Import the TechnicalIndicators class from the technical_indicators module
+from ReusableFunctions.TechnicalIndicators import TechnicalIndicators
 
-# Error Suppression
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+# Example usage of the TechnicalIndicators class
+tech_indicators = TechnicalIndicators(ticker="AAPL")
+df_with_indicators = tech_indicators.add_technical_indicators()
 
-from sklearn.model_selection import ParameterGrid
-
-# Define the hyperparameter grid
-param_grid = {
-    'filters': [32, 64],
-    'kernel_size': [3, 5],
-    'dropout_rate': [0.2, 0.3],
-    'learning_rate': [0.001, 0.01],
-    'batch_size': [32, 64],
-    'epochs': [20, 50],
-    'optimizer': ['adam', 'rmsprop']
+# Define the fixed hyperparameters (no changes needed here)
+fixed_params = {
+    'filters': 32,  # Number of filters in the CNN layer
+    'kernel_size': 3,  # Size of the kernel
+    'dropout_rate': 0.2,
+    'learning_rate': 0.001,
+    'batch_size': 16,
+    'epochs': 100,
+    'optimizer': 'adam'
 }
 
-# Convert the grid to a list of parameter combinations
-param_combinations = list(ParameterGrid(param_grid))
-
-def download_stock_data(ticker, start_date='2010-01-01', end_date='2024-12-31'):
-    # Calculate extra buffer period (e.g., 1 year)
-    buffer_start = pd.to_datetime(start_date) - pd.DateOffset(years=1)
-    
-    # Download data with buffer period
-    data = yf.download(ticker, start=buffer_start.strftime('%Y-%m-%d'), end=end_date)
-
-    # Fetch earnings report dates
-    ticker_data = yf.Ticker(ticker)
-    earnings_dates = set(pd.to_datetime(ticker_data.earnings_dates.index).normalize())  # Normalize dates
-
-    # Fetch ex-dividend dates
-    ex_dividend_dates = set(pd.to_datetime(ticker_data.dividends.index).normalize())
-
-    # Combine both sets
-    dates_to_remove = earnings_dates.union(ex_dividend_dates)
-
-    # Ensure data index is datetime and normalized
-    data.index = pd.to_datetime(data.index).normalize()
-
-    # Remove both earnings & ex-dividend dates
-    data = data[~data.index.isin(dates_to_remove)]
-
-    # Trim the dataset to the actual requested start_date
-    data = data.loc[start_date:]
-
-    print(dates_to_remove)
-
-    return data
-
-def add_technical_indicators(ticker, df):
-    # Ensure calculations don't cause issues with chained assignments
-    pd.options.mode.chained_assignment = None  
-
-    # Moving Averages
-    df['20MA'] = df['Close'].rolling(window=20, min_periods=1).mean()
-    df['50MA'] = df['Close'].rolling(window=50, min_periods=1).mean()
-    df['200MA'] = df['Close'].rolling(window=200, min_periods=1).mean()
-
-    # Relative Strength Index (RSI)
-    delta = df['Close'].diff()
-    gain = delta.where(delta > 0, 0).rolling(window=14, min_periods=1).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14, min_periods=1).mean()
-    rs = gain / loss
-    df['RSI'] = 100 - (100 / (1 + rs))
-    df['RSI'].fillna(50, inplace=True)
-
-    # MACD and Signal Line
-    df['12EMA'] = df['Close'].ewm(span=12, adjust=False, min_periods=1).mean()
-    df['26EMA'] = df['Close'].ewm(span=26, adjust=False, min_periods=1).mean()
-    df['MACD'] = df['12EMA'] - df['26EMA']
-    df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False, min_periods=1).mean()
-
-    # Bollinger Bands
-    df['20STD'] = df['Close'].rolling(window=20, min_periods=1).std()
-    df['Upper_BB'] = df['20MA'] + (df['20STD'] * 2)
-    df['Lower_BB'] = df['20MA'] - (df['20STD'] * 2)
-
-    # Commodity Channel Index (CCI)
-    typical_price = (df['High'] + df['Low'] + df['Close']) / 3
-    mean_dev = lambda x: np.mean(np.abs(x - np.mean(x)))
-    df['CCI'] = (typical_price - typical_price.rolling(window=20, min_periods=1).mean()) / \
-                (0.015 * typical_price.rolling(window=20, min_periods=1).apply(mean_dev, raw=True))
-
-    # Average True Range (ATR)
-    df['TR'] = np.maximum(df['High'] - df['Low'], 
-                          np.maximum(abs(df['High'] - df['Close'].shift(1)), 
-                                     abs(df['Low'] - df['Close'].shift(1))))
-    df['ATR'] = df['TR'].rolling(window=14, min_periods=1).mean()
-    df.drop(columns=['TR'], inplace=True)  # Drop intermediate column
-
-    # Rate of Change (ROC)
-    df['ROC'] = df['Close'].pct_change(periods=10) * 100
-
-    # Williams %R
-    df['Williams_%R'] = ((df['High'].rolling(window=14, min_periods=1).max() - df['Close']) / 
-                          (df['High'].rolling(window=14, min_periods=1).max() - df['Low'].rolling(window=14, min_periods=1).min())) * -100
-
-    # On-Balance Volume (OBV)
-    df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
-
-    # Drop intermediate columns
-    df.drop(columns=['20STD'], inplace=True)
-
-    # Forward-fill and backward-fill NaN values
-    df.ffill(inplace=True)
-    df.bfill(inplace=True)
-
-    # Verify no NaN values exist
-    print("Null values in each column:\n", df.isnull().sum())
-    print(f"Does the dataset contain any null values? {df.isnull().values.any()}")
-
-    folder_name = "check"
-    os.makedirs(folder_name, exist_ok=True)
-    filename = os.path.join(folder_name, f"{ticker}_CNN.csv")
-    df.to_csv(filename, index=False)
-
-    return df  # Original DataFrame is modified, so return is optional
-
+# Function to normalize the data
 def normalize_data(df):
     all_indicators = [
-        '20MA', '50MA', '200MA', 'RSI', 'MACD', 'Signal_Line', 
+        '20MA', '50MA', '200MA', 'RSI', 'MACD', 'Signal_Line',
         'Upper_BB', 'Lower_BB', 'CCI', 'ATR', 'ROC', 'Williams_%R', 'OBV'
     ]
 
@@ -161,17 +56,17 @@ def normalize_data(df):
         # Store the scaled data
         all_scaled_data[selected_indicators] = scaled_data
 
-    return df, all_scaled_data  # Return the full dataset and all scaled variations
+    return df, all_scaled_data
 
 # Prepare the time-series data
-def create_time_series_data(df, scaled_data, window_size=120):
+def create_time_series_data(df, scaled_data, window_size=50):
     X, y = [], []
     for i in range(window_size, len(df)):
         X.append(scaled_data[i-window_size:i])
         y.append(df['Close'].iloc[i])
     return np.array(X), np.array(y)
 
-# Split data into training and testing sets (80% training,20% testing)
+# Split data into training and testing sets (80% training, 20% testing)
 def split_data(X, y, train_size=0.7, val_size=0.1, test_size=0.2):
     train_end = int(len(X) * train_size)
     val_end = train_end + int(len(X) * val_size)
@@ -182,35 +77,31 @@ def split_data(X, y, train_size=0.7, val_size=0.1, test_size=0.2):
 
     return X_train, X_val, X_test, y_train, y_val, y_test
 
-def create_cnn_model(input_shape, filters=64, kernel_size=3, dropout_rate=0.2, learning_rate=0.001, optimizer='adam'):
-
+# Function to create a CNN model with fixed hyperparameters
+def create_cnn_model(input_shape, params=fixed_params):
     # Initialize the model
     model = Sequential()
 
-    # Add Input layer
-    model.add(Input(shape=input_shape))
+    # Add 1D convolutional layer
+    model.add(Conv1D(filters=params['filters'], kernel_size=params['kernel_size'], activation='relu', input_shape=input_shape))
 
-    # First Conv1D layer
-    model.add(Conv1D(filters=filters, kernel_size=kernel_size, activation='relu'))
-    model.add(MaxPooling1D(pool_size=2))
-    model.add(Dropout(rate=dropout_rate))
+    # Add MaxPooling layer
+    model.add(MaxPooling1D(pool_size=4))
 
-    # Second Conv1D layer
-    model.add(Conv1D(filters=filters, kernel_size=kernel_size, activation='relu'))
-    model.add(MaxPooling1D(pool_size=2))
-    model.add(Dropout(rate=dropout_rate))
+    # Dropout layer to prevent overfitting
+    model.add(Dropout(rate=params['dropout_rate']))
 
-    # Flatten the output
+    # Flatten the output to feed into fully connected layers
     model.add(Flatten())
 
-    # Output layer
-    model.add(Dense(units=1))  # Assuming you're predicting a single value
+    # Dense layer for final prediction
+    model.add(Dense(units=1))
 
     # Choose optimizer
-    if optimizer == 'adam':
-        opt = Adam(learning_rate=learning_rate)
-    elif optimizer == 'rmsprop':
-        opt = RMSprop(learning_rate=learning_rate)
+    if params['optimizer'] == 'adam':
+        opt = Adam(learning_rate=params['learning_rate'])
+    elif params['optimizer'] == 'rmsprop':
+        opt = RMSprop(learning_rate=params['learning_rate'])
     else:
         raise ValueError("Optimizer must be 'adam' or 'rmsprop'.")
 
@@ -219,94 +110,101 @@ def create_cnn_model(input_shape, filters=64, kernel_size=3, dropout_rate=0.2, l
 
     return model
 
+
+
+def calculate_accuracy(y_true, y_pred, threshold_percent=5):
+    y_true = np.array(y_true).flatten()
+    y_pred = np.array(y_pred).flatten()
+    percentage_diff = np.abs((y_pred - y_true) / y_true) * 100
+    within_threshold = percentage_diff <= threshold_percent
+
+    correct_count = np.sum(within_threshold)  # Count of correct predictions within threshold
+    total_count = len(within_threshold)  # Total number of predictions
+    accuracy_percentage = (correct_count / total_count) * 100  # Calculate accuracy percentage
+
+    # Optional print/logging for debugging or further analysis
+    print(f"Correct predictions within {threshold_percent}%: {correct_count} out of {total_count}")
+    return accuracy_percentage
+
+
+
 # Define tickers
-tickers = ['AAPL', 'NVDA', 'MSFT', 'BRK-B', 'JPM', 'V', 'XOM', 'CVX', 'COP', '1155.KL', '1023.KL','1295.KL', '0270.KL', '5309.KL', '6963.KL', '5681.KL', '7727.KL', '7293.KL']
+tickers = ['6963.KL']
 
-# Dictionary to store results
-results = {}
-
-# Define the output folder
 output_folder = "stock_results"
 os.makedirs(output_folder, exist_ok=True)  # Ensure folder exists
 
 for ticker in tickers:
     print(f"Running model for {ticker}...\n")
 
-    df = download_stock_data(ticker)
-    df = add_technical_indicators(ticker, df)
-    df, all_scaled_data = normalize_data(df)
+    # Use the TechnicalIndicators class to get the stock data and technical indicators
+    tech_indicators = TechnicalIndicators(ticker=ticker)  # Load data using ticker
+    df_with_indicators = tech_indicators.add_technical_indicators()
+    
+    check_folder = "check"
+    os.makedirs(check_folder, exist_ok=True)
+
+    check_file_path = os.path.join(check_folder, f"{ticker}_CNN.csv")
+    df_with_indicators.to_csv(check_file_path, index=False)
+
+
+    # Normalize the data (indicators)
+    df, all_scaled_data = normalize_data(df_with_indicators)
 
     output_file = os.path.join(output_folder, f"{ticker}_results_CNN.csv")
 
     with open(output_file, mode='w', newline='') as file:
-        header = ["Ticker", "Indicators", "Filters", "Kernel Size", "Dropout Rate", "Learning Rate", "Batch Size", "Epochs", "Optimizer", "MSE", "RMSE", "MAE", "MAPE"]
+        header = header = ["Ticker", "Indicators", "Filters", "Kernel Size", "Dropout Rate", "Learning Rate", "Batch Size", "Epochs", "Optimizer",  "RMSE", "MAPE", "R2", "Accuracy"]
+
         writer = csv.writer(file)
         writer.writerow(header)  # Write header
 
         for selected_indicators, scaled_data in all_scaled_data.items():
-            for params in param_combinations:  # Loop through hyperparameter combinations
-                print(f"Training with indicators: {selected_indicators} and parameters: {params}")
-                X, y = create_time_series_data(df, scaled_data)
+            print(f"Training with indicators: {selected_indicators} and fixed parameters: {fixed_params}")
+            X, y = create_time_series_data(df, scaled_data)
 
-                X_train, X_val, X_test, y_train, y_val, y_test = split_data(X, y)
+            X_train, X_val, X_test, y_train, y_val, y_test = split_data(X, y)
 
-                # Scale target values (y)
-                scaler_y = MinMaxScaler(feature_range=(0, 1))
-                y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
-                y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
-                y_test_scaled = scaler_y.transform(y_test.reshape(-1, 1))
+            # Scale target values (y)
+            scaler_y = MinMaxScaler(feature_range=(0, 1))
+            y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
+            y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
+            y_test_scaled = scaler_y.transform(y_test.reshape(-1, 1))
 
-                input_shape = (X_train.shape[1], X_train.shape[2])
-                
-                # Create and train the model with the current hyperparameters
-                model = create_cnn_model(
-                    input_shape=input_shape,
-                    filters=params['filters'],
-                    kernel_size=params['kernel_size'],
-                    dropout_rate=params['dropout_rate'],
-                    learning_rate=params['learning_rate'],
-                    optimizer=params['optimizer']
-                )
+            input_shape = (X_train.shape[1], X_train.shape[2])  # Input shape for CNN
 
-                early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+            # Create and train the model with the fixed hyperparameters
+            model = create_cnn_model(input_shape=input_shape)
 
-                history = model.fit(
-                    X_train, y_train_scaled,
-                    epochs=params['epochs'],
-                    batch_size=params['batch_size'],
-                    validation_data=(X_val, y_val_scaled),
-                    callbacks=[early_stopping],
-                    verbose=0
-                )
+            early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
 
-                # Evaluate the model
-                y_pred_scaled = model.predict(X_test)
-                y_pred = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1))
-                y_test_original = scaler_y.inverse_transform(y_test_scaled)
+            history = model.fit(
+                X_train, y_train_scaled,
+                epochs=fixed_params['epochs'],
+                batch_size=fixed_params['batch_size'],
+                validation_data=(X_val, y_val_scaled),
+                callbacks=[early_stopping],
+                verbose=0
+            )
 
-                mse = mean_squared_error(y_test_original, y_pred)
-                rmse = np.sqrt(mse)
-                mae = mean_absolute_error(y_test_original, y_pred)
-                mape = mean_absolute_percentage_error(y_test_original, y_pred) * 100
+            # Evaluate the model
+            y_pred_scaled = model.predict(X_test)
+            y_pred = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1))
+            y_test_original = scaler_y.inverse_transform(y_test_scaled)
 
-                # Write the results to the CSV file
-                writer.writerow([
-                    ticker,  # Ticker symbol
-                    ', '.join(selected_indicators),  # Selected indicators
-                    params['filters'],  # Filters
-                    params['kernel_size'],  # Kernel size
-                    params['dropout_rate'],  # Dropout rate
-                    params['learning_rate'],  # Learning rate
-                    params['batch_size'],  # Batch size
-                    params['epochs'],  # Number of epochs
-                    params['optimizer'],  # Optimizer
-                    mse,  # MSE
-                    rmse,  # RMSE
-                    mae,  # MAE
-                    mape  # MAPE
-                ])
 
-                # Flush the file buffer to ensure data is written
-                file.flush()
+            accuracy = calculate_accuracy(y_test_original, y_pred)
+            mse=mean_squared_error(y_test_original, y_pred)
+            rmse = np.sqrt(mse)
+            mape = mean_absolute_percentage_error(y_test_original, y_pred) * 100
+            r2 = r2_score(y_test_original, y_pred)
 
-                print(f"{ticker} - RMSE: {rmse:.4f}, MSE: {mse:.4f}, MAE: {mae:.4f}, MAPE: {mape:.4f}\n")
+            # Write the results to the CSV file
+            writer.writerow([ticker, ', '.join(selected_indicators), fixed_params['filters'], fixed_params['kernel_size'], fixed_params['dropout_rate'],
+                             fixed_params['learning_rate'], fixed_params['batch_size'], fixed_params['epochs'], fixed_params['optimizer'],
+                            rmse, mape, r2, accuracy])
+
+            # Flush the file buffer to ensure data is written
+            file.flush()
+
+            print(f"{ticker} - RMSE: {rmse:.4f}, MAPE: {mape:.4f}, R²: {r2:.4f}, Accuracy: {accuracy:.2f}%\n")
