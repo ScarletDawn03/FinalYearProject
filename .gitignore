@@ -16,7 +16,6 @@ venv/
 .vscode/
 
 # Data / Outputs
-*.csv
 check/
 stock_results/
 

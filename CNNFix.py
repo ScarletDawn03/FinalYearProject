@@ -125,7 +125,7 @@ def calculate_accuracy(y_true, y_pred, threshold_percent=5):
 
 
 # Define tickers
-tickers = ['1155.KL']
+tickers = ['XOM']
 
 output_folder = "stock_results"
 os.makedirs(output_folder, exist_ok=True)  # Ensure folder exists
@@ -149,14 +149,16 @@ for ticker in tickers:
 
     output_file = os.path.join(output_folder, f"{ticker}_results_CNN.csv")
 
-    with open(output_file, mode='w', newline='') as file:
-        header = header = header = ["Ticker", "Indicators", "Filters", "Kernel Size", "Dropout Rate", "Learning Rate", "Batch Size", "Epochs", "Optimizer",
-          "RMSE", "MAPE", "R2", "Accuracy", "Train Loss", "Validation Loss"]
+    with open(output_file, mode='a', newline='') as file:
+        header = header = ["Ticker", "Indicators", "Filters", "Kernel Size", "Dropout Rate", "Learning Rate", "Batch Size", "Epochs", "Optimizer",  "RMSE", "MAPE", "R2", "Accuracy"]
 
         writer = csv.writer(file)
         writer.writerow(header)  # Write header
+        indicator_combinations = list(all_scaled_data.items())
+        start_index = 963  # because combo 946 is at index 945
 
-        for selected_indicators, scaled_data in all_scaled_data.items():
+        for i in range(start_index, len(indicator_combinations)):
+            selected_indicators, scaled_data = indicator_combinations[i]
             print(f"Training with indicators: {selected_indicators} and fixed parameters: {fixed_params}")
             X, y = create_time_series_data(df, scaled_data)
 
@@ -184,10 +186,6 @@ for ticker in tickers:
                 verbose=0
             )
 
-            final_train_loss = history.history['loss'][-1]
-            final_val_loss = history.history['val_loss'][-1]
-
-
             # Evaluate the model
             y_pred_scaled = model.predict(X_test)
             y_pred = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1))
@@ -202,9 +200,8 @@ for ticker in tickers:
 
             # Write the results to the CSV file
             writer.writerow([ticker, ', '.join(selected_indicators), fixed_params['filters'], fixed_params['kernel_size'], fixed_params['dropout_rate'],
-                 fixed_params['learning_rate'], fixed_params['batch_size'], fixed_params['epochs'], fixed_params['optimizer'],
-                 rmse, mape, r2, accuracy, final_train_loss, final_val_loss])
-
+                             fixed_params['learning_rate'], fixed_params['batch_size'], fixed_params['epochs'], fixed_params['optimizer'],
+                            rmse, mape, r2, accuracy])
 
             # Flush the file buffer to ensure data is written
             file.flush()
