@@ -14,7 +14,7 @@ import tensorflow as tf
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0 = all logs, 1 = filter out INFO logs, 2 = filter out WARNING logs, 3 = filter out ERROR logs
 # Import the TechnicalIndicators class from the technical_indicators module
-from ReusableFunctions.TechnicalIndicators import TechnicalIndicators
+from ReusableFunctions.DataPreprocessing import TechnicalIndicators
 
 # Define the fixed hyperparameters (no changes needed here)
 fixed_params = {
@@ -150,7 +150,8 @@ for ticker in tickers:
     output_file = os.path.join(output_folder, f"{ticker}_results_CNN.csv")
 
     with open(output_file, mode='a', newline='') as file:
-        header = header = ["Ticker", "Indicators", "Filters", "Kernel Size", "Dropout Rate", "Learning Rate", "Batch Size", "Epochs", "Optimizer",  "RMSE", "MAPE", "R2", "Accuracy"]
+        header = header = header = ["Ticker", "Indicators", "Filters", "Kernel Size", "Dropout Rate", "Learning Rate", "Batch Size", "Epochs", "Optimizer",
+          "RMSE", "MAPE", "R2", "Accuracy", "Train Loss", "Validation Loss"]
 
         writer = csv.writer(file)
         writer.writerow(header)  # Write header
@@ -186,6 +187,9 @@ for ticker in tickers:
                 verbose=0
             )
 
+            final_train_loss = history.history['loss'][-1]
+            final_val_loss = history.history['val_loss'][-1]
+
             # Evaluate the model
             y_pred_scaled = model.predict(X_test)
             y_pred = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1))
@@ -200,8 +204,8 @@ for ticker in tickers:
 
             # Write the results to the CSV file
             writer.writerow([ticker, ', '.join(selected_indicators), fixed_params['filters'], fixed_params['kernel_size'], fixed_params['dropout_rate'],
-                             fixed_params['learning_rate'], fixed_params['batch_size'], fixed_params['epochs'], fixed_params['optimizer'],
-                            rmse, mape, r2, accuracy])
+                 fixed_params['learning_rate'], fixed_params['batch_size'], fixed_params['epochs'], fixed_params['optimizer'],
+                 rmse, mape, r2, accuracy, final_train_loss, final_val_loss])
 
             # Flush the file buffer to ensure data is written
             file.flush()

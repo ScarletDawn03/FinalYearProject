@@ -84,25 +84,23 @@ def split_data(X, y, train_size=0.7, val_size=0.1):
 
 from tensorflow.keras.layers import LSTM
 
-def create_lstm_model(input_shape, params):
-    """
-    Build and compile an LSTM model using the given hyperparameters.
-    The LSTM layer is adjusted to use a non-CuDNN implementation (via implementation=1 and unroll=True)
-    to ensure compatibility with AMD GPUs/DirectML.
-    """
+def create_slstm_model(input_shape, params):
     model = Sequential()
+    
     model.add(LSTM(
-        units=params['neurons'],
-        activation=params['activation'],
-        return_sequences=False,
-        input_shape=input_shape,
-        implementation=1,  # Forces a portable (non-CuDNN) implementation
-        unroll=True       # Optionally unrolls the LSTM for compatibility
+    units=params['neurons'],
+    activation=params['activation'],  # keep your activation
+    input_shape=(X_train.shape[1], X_train.shape[2]),
+    dropout=params['dropout_rate'],
+    recurrent_dropout=0.0,  # can also be adjusted
+    return_sequences=False,
+    use_bias=True,
+    recurrent_activation="sigmoid"  # Required for compatibility with non-CuDNN
     ))
-    model.add(Dropout(rate=params['dropout_rate']))
-    model.add(Dense(1))  # Single output neuron
+    model.add(Dropout(params['dropout_rate']))
+    model.add(Dense(1))
 
-    # Optimizer selection
+    # Optimizer
     if params['optimizer'] == 'adam':
         opt = Adam(learning_rate=params['learning_rate'])
     else:
@@ -110,6 +108,7 @@ def create_lstm_model(input_shape, params):
 
     model.compile(optimizer=opt, loss='mean_squared_error')
     return model
+
 
 def calculate_accuracy(y_true, y_pred, threshold_percent=5):
     """
@@ -168,7 +167,7 @@ for ticker in tickers:
                 y_test_scaled = scaler_y.transform(y_test.reshape(-1, 1))
 
                 input_shape = (X_train.shape[1], X_train.shape[2])
-                model = create_lstm_model(input_shape=input_shape, params=params)
+                model = create_slstm_model(input_shape=input_shape, params=params)
 
                 early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
 

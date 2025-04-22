@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 
-class TechnicalIndicators:
+class DataPreprocessing:
     def __init__(self, ticker=None, df=None, start_date='2010-01-01', end_date='2024-12-31'):
         """
         Initialize the TechnicalIndicators class with either a DataFrame or a ticker symbol.
@@ -13,10 +13,13 @@ class TechnicalIndicators:
         - start_date (str): Start date for downloading stock data (if ticker is used).
         - end_date (str): End date for downloading stock data (if ticker is used).
         """
+
+        self.analysis_start_date = '2011-01-01'
         if df is not None:
             self.df = df
         elif ticker is not None:
             self.df = self.download_stock_data(ticker, start_date, end_date)
+            self.remove_exdividend_and_earnings_dates(ticker)
         else:
             raise ValueError("Either a ticker or a DataFrame must be provided.")
 
@@ -34,6 +37,40 @@ class TechnicalIndicators:
         """
         data = yf.download(ticker, start=start_date, end=end_date)
         return data
+    
+    def remove_exdividend_and_earnings_dates(self, ticker):
+        """
+        Removes rows from the DataFrame that correspond to ex-dividend and earnings dates.
+
+        Args:
+        - ticker (str): Ticker symbol to fetch the actions and earnings dates from.
+        """
+        ticker_obj = yf.Ticker(ticker)
+
+        # Get ex-dividend dates
+        try:
+            ex_dividends = ticker_obj.actions[ticker_obj.actions['Dividends'] > 0].index
+        except Exception as e:
+            print("Could not retrieve ex-dividend dates:", e)
+            ex_dividends = []
+
+        # Get earnings dates
+        try:
+            earnings_calendar = ticker_obj.earnings_dates
+            earnings_dates = earnings_calendar.index
+        except Exception as e:
+            print("Could not retrieve earnings dates:", e)
+            earnings_dates = []
+
+        # Combine all dates to exclude
+        dates_to_exclude = pd.to_datetime(ex_dividends.union(earnings_dates))
+
+        # Remove from DataFrame
+        before = len(self.df)
+        self.df = self.df[~self.df.index.isin(dates_to_exclude)]
+        after = len(self.df)
+
+        print(f"Removed {before - after} rows corresponding to ex-dividend and earnings dates.")
 
     def add_technical_indicators(self):
         """
@@ -102,4 +139,6 @@ class TechnicalIndicators:
         print("Null values in each column:\n", self.df.isnull().sum())
         print(f"Does the dataset contain any null values? {self.df.isnull().values.any()}")
 
-        return self.df  # Return the DataFrame with technical indicators added
+        
+        # Return only rows from analysis start date forward
+        return self.df.loc[self.analysis_start_date:]

@@ -18,7 +18,7 @@ import tensorflow as tf
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-from ReusableFunctions.TechnicalIndicators import TechnicalIndicators
+from ReusableFunctions.DataPreprocessing import DataPreprocessing
 
 # Define hyperparameter search space
 hyperparameter_space = {
@@ -94,8 +94,8 @@ os.makedirs(output_folder, exist_ok=True)
 for ticker in tickers:
     print(f"Running model for {ticker}...\n")
 
-    tech_indicators = TechnicalIndicators(ticker=ticker)
-    df_with_indicators = tech_indicators.add_technical_indicators()
+    data_preprocessing = DataPreprocessing(ticker=ticker)
+    df_with_indicators = data_preprocessing.add_technical_indicators()
     df, all_scaled_data = normalize_data(df_with_indicators)
 
     output_file = os.path.join(output_folder, f"{ticker}_results_CNN_GridSearch.csv")
