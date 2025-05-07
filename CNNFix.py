@@ -14,7 +14,7 @@ import tensorflow as tf
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0 = all logs, 1 = filter out INFO logs, 2 = filter out WARNING logs, 3 = filter out ERROR logs
 # Import the TechnicalIndicators class from the technical_indicators module
-from ReusableFunctions.DataPreprocessing import TechnicalIndicators
+from ReusableFunctions.DataPreprocessing import DataPreprocessing
 
 # Define the fixed hyperparameters (no changes needed here)
 fixed_params = {
@@ -125,7 +125,7 @@ def calculate_accuracy(y_true, y_pred, threshold_percent=5):
 
 
 # Define tickers
-tickers = ['XOM']
+tickers = ['1155.KL']
 
 output_folder = "stock_results"
 os.makedirs(output_folder, exist_ok=True)  # Ensure folder exists
@@ -134,7 +134,7 @@ for ticker in tickers:
     print(f"Running model for {ticker}...\n")
 
     # Use the TechnicalIndicators class to get the stock data and technical indicators
-    tech_indicators = TechnicalIndicators(ticker=ticker)  # Load data using ticker
+    tech_indicators = DataPreprocessing(ticker=ticker)  # Load data using ticker
     df_with_indicators = tech_indicators.add_technical_indicators()
     
     check_folder = "check"
@@ -156,7 +156,7 @@ for ticker in tickers:
         writer = csv.writer(file)
         writer.writerow(header)  # Write header
         indicator_combinations = list(all_scaled_data.items())
-        start_index = 963  # because combo 946 is at index 945
+        start_index = 50 
 
         for i in range(start_index, len(indicator_combinations)):
             selected_indicators, scaled_data = indicator_combinations[i]

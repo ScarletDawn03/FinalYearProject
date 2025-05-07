@@ -137,7 +137,7 @@ def calculate_accuracy(y_true, y_pred, threshold_percent=5):
 
 
 # Define tickers
-tickers = ['JPM']
+tickers = ['1155.KL']
 
 # Create output directory if it doesn't exist
 output_folder = "stock_results"
