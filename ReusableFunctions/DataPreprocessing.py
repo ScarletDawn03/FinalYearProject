@@ -63,7 +63,9 @@ class DataPreprocessing:
             earnings_dates = []
 
         # Combine all dates to exclude
-        dates_to_exclude = pd.to_datetime(ex_dividends.union(earnings_dates))
+        combined_dates = ex_dividends.append(earnings_dates)
+        dates_to_exclude = combined_dates.drop_duplicates()
+
 
         # Remove from DataFrame
         before = len(self.df)
