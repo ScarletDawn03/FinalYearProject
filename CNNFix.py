@@ -1,5 +1,6 @@
 import os
 import csv
+import random
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -11,6 +12,15 @@ from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropou
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.optimizers import Adam, RMSprop
 import tensorflow as tf
+
+
+
+# Set seed for reproducibility
+SEED = 42
+os.environ['PYTHONHASHSEED'] = str(SEED)
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
+random.seed(SEED)
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0 = all logs, 1 = filter out INFO logs, 2 = filter out WARNING logs, 3 = filter out ERROR logs
 # Import the TechnicalIndicators class from the technical_indicators module
@@ -125,7 +135,7 @@ def calculate_accuracy(y_true, y_pred, threshold_percent=5):
 
 
 # Define tickers
-tickers = ['1155.KL']
+tickers = ['AAPL']
 
 output_folder = "stock_results"
 os.makedirs(output_folder, exist_ok=True)  # Ensure folder exists
@@ -151,7 +161,7 @@ for ticker in tickers:
 
     with open(output_file, mode='a', newline='') as file:
         header = header = header = ["Ticker", "Indicators", "Filters", "Kernel Size", "Dropout Rate", "Learning Rate", "Batch Size", "Epochs", "Optimizer",
-          "RMSE", "MAPE", "R2", "Accuracy", "Train Loss", "Validation Loss"]
+          "RMSE", "MAPE", "R2", "Accuracy"]
 
         writer = csv.writer(file)
         writer.writerow(header)  # Write header
@@ -187,8 +197,8 @@ for ticker in tickers:
                 verbose=0
             )
 
-            final_train_loss = history.history['loss'][-1]
-            final_val_loss = history.history['val_loss'][-1]
+            # final_train_loss = history.history['loss'][-1]
+            # final_val_loss = history.history['val_loss'][-1]
 
             # Evaluate the model
             y_pred_scaled = model.predict(X_test)
@@ -205,7 +215,7 @@ for ticker in tickers:
             # Write the results to the CSV file
             writer.writerow([ticker, ', '.join(selected_indicators), fixed_params['filters'], fixed_params['kernel_size'], fixed_params['dropout_rate'],
                  fixed_params['learning_rate'], fixed_params['batch_size'], fixed_params['epochs'], fixed_params['optimizer'],
-                 rmse, mape, r2, accuracy, final_train_loss, final_val_loss])
+                 rmse, mape, r2, accuracy])
 
             # Flush the file buffer to ensure data is written
             file.flush()
