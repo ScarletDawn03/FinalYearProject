@@ -1,5 +1,6 @@
 import os
 import csv
+import random
 import numpy as np
 
 from itertools import combinations
@@ -11,8 +12,17 @@ from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.optimizers import Adam, RMSprop
 import tensorflow as tf
 
+#Reproducibility settings
+SEED = 42
+os.environ['PYTHONHASHSEED'] = str(SEED)
+random.seed(SEED)
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
+os.environ['TF_DETERMINISTIC_OPS'] = '1'
+tf.config.threading.set_inter_op_parallelism_threads(1)
+tf.config.threading.set_intra_op_parallelism_threads(1)
 
-# Suppress TensorFlow warnings
+# # Suppress TensorFlow warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  
 
 # Import custom class for technical indicators
@@ -137,7 +147,7 @@ def calculate_accuracy(y_true, y_pred, threshold_percent=5):
 
 
 # Define tickers
-tickers = ['1155.KL']
+tickers = ['AAPL']
 
 # Create output directory if it doesn't exist
 output_folder = "stock_results"
@@ -165,7 +175,7 @@ for ticker in tickers:
     output_file = os.path.join(output_folder, f"{ticker}_results_CNN.csv")
     with open(output_file, mode='w', newline='') as file:
         header = ["Ticker", "Indicators", "Filters", "Kernel Size", "Dropout Rate", "Learning Rate", "Batch Size", "Epochs", "Optimizer",
-          "RMSE", "MAPE", "R2", "Accuracy", "Train Loss", "Validation Loss"]
+          "RMSE", "MAPE", "R2", "Accuracy"]
 
         writer = csv.writer(file)
         writer.writerow(header)  # Write header
@@ -198,8 +208,8 @@ for ticker in tickers:
             )
 
             # Collect final training/validation loss for reporting
-            final_train_loss = history.history['loss'][-1]
-            final_val_loss = history.history['val_loss'][-1]
+            # final_train_loss = history.history['loss'][-1]
+            # final_val_loss = history.history['val_loss'][-1]
 
 
             # Predict and inverse scale predictions
@@ -217,7 +227,9 @@ for ticker in tickers:
             # Write the results to the CSV file
             writer.writerow([ticker, ', '.join(selected_indicators), fixed_params['filters'], fixed_params['kernel_size'], fixed_params['dropout_rate'],
                  fixed_params['learning_rate'], fixed_params['batch_size'], fixed_params['epochs'], fixed_params['optimizer'],
-                 rmse, mape, r2, accuracy, final_train_loss, final_val_loss])
+                 rmse, mape, r2, accuracy])
+            
+            # Can add in final_train_loss, final_val_loss, for FYP2
 
 
             # Flush the file buffer to ensure data is written
