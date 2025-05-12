@@ -84,51 +84,51 @@ class DataPreprocessing:
         pd.options.mode.chained_assignment = None  # Disable warnings for chained assignments
 
         # Moving Averages
-        self.df['20MA'] = self.df['Close'].rolling(window=20, min_periods=1).mean()
-        self.df['50MA'] = self.df['Close'].rolling(window=50, min_periods=1).mean()
-        self.df['200MA'] = self.df['Close'].rolling(window=200, min_periods=1).mean()
+        self.df['20MA'] = self.df['Close'].rolling(window=20, min_periods=1).mean() #Takes sum of closing price of the last 20 days and divide by 20
+        self.df['50MA'] = self.df['Close'].rolling(window=50, min_periods=1).mean() #Takes sum of closing price of the last 50 days and divide by 50
+        self.df['200MA'] = self.df['Close'].rolling(window=200, min_periods=1).mean() #Takes closing price of the last 200 days and divide by 200
 
         # Relative Strength Index (RSI)
         delta = self.df['Close'].diff()
-        gain = delta.where(delta > 0, 0).rolling(window=14, min_periods=1).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14, min_periods=1).mean()
-        rs = gain / loss
-        self.df['RSI'] = 100 - (100 / (1 + rs))
+        gain = delta.where(delta > 0, 0).rolling(window=14, min_periods=1).mean() #Sum of positive values over 14 days
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14, min_periods=1).mean() #Sum of negative values over 14 days
+        rs = gain / loss #Calculate the relative strength
+        self.df['RSI'] = 100 - (100 / (1 + rs)) #>70 overbought, <30 oversold
         self.df['RSI'].fillna(50, inplace=True)
 
         # MACD and Signal Line
-        self.df['12EMA'] = self.df['Close'].ewm(span=12, adjust=False, min_periods=1).mean()
-        self.df['26EMA'] = self.df['Close'].ewm(span=26, adjust=False, min_periods=1).mean()
+        self.df['12EMA'] = self.df['Close'].ewm(span=12, adjust=False, min_periods=1).mean() #EMA=Soothing Factor x Price + (1-Soothing Factor) x Previous EMA
+        self.df['26EMA'] = self.df['Close'].ewm(span=26, adjust=False, min_periods=1).mean() #Soothing Factor= 2/(span)+1
         self.df['MACD'] = self.df['12EMA'] - self.df['26EMA']
         self.df['Signal_Line'] = self.df['MACD'].ewm(span=9, adjust=False, min_periods=1).mean()
 
         # Bollinger Bands
-        self.df['20STD'] = self.df['Close'].rolling(window=20, min_periods=1).std()
-        self.df['Upper_BB'] = self.df['20MA'] + (self.df['20STD'] * 2)
-        self.df['Lower_BB'] = self.df['20MA'] - (self.df['20STD'] * 2)
+        self.df['20STD'] = self.df['Close'].rolling(window=20, min_periods=1).std() #Standard deviation of Close over 20 periods
+        self.df['Upper_BB'] = self.df['20MA'] + (self.df['20STD'] * 2)  # 20MA + 2 x Standard Deviation over a 20 week period
+        self.df['Lower_BB'] = self.df['20MA'] - (self.df['20STD'] * 2)  # 20MA - 2 x Standard Deviation over a 20 week period
 
         # Commodity Channel Index (CCI)
         typical_price = (self.df['High'] + self.df['Low'] + self.df['Close']) / 3
-        mean_dev = lambda x: np.mean(np.abs(x - np.mean(x)))
+        mean_dev = lambda x: np.mean(np.abs(x - np.mean(x))) #sum of absolute value of previous typical price- typical price over a span of 20 weeks divide by the number of days
         self.df['CCI'] = (typical_price - typical_price.rolling(window=20, min_periods=1).mean()) / \
-                        (0.015 * typical_price.rolling(window=20, min_periods=1).apply(mean_dev, raw=True))
+                        (0.015 * typical_price.rolling(window=20, min_periods=1).apply(mean_dev, raw=True)) #Typical Price -Typical Price Over a Span of 20 wewks/0.015 x Mean Diviation
 
         # Average True Range (ATR)
         self.df['TR'] = np.maximum(self.df['High'] - self.df['Low'], 
                                    np.maximum(abs(self.df['High'] - self.df['Close'].shift(1)), 
                                               abs(self.df['Low'] - self.df['Close'].shift(1))))
-        self.df['ATR'] = self.df['TR'].rolling(window=14, min_periods=1).mean()
+        self.df['ATR'] = self.df['TR'].rolling(window=14, min_periods=1).mean() #Simple Moving Average of TR Over a 14 Week Period
         self.df.drop(columns=['TR'], inplace=True)  # Drop intermediate column
 
         # Rate of Change (ROC)
-        self.df['ROC'] = self.df['Close'].pct_change(periods=10) * 100
+        self.df['ROC'] = self.df['Close'].pct_change(periods=10) * 100 # (Closing Price- Closing price 10 weeks ago)/Closing price 10 days ago X 100, ROC>0 =Positive Momentum, ROC<0 = Negative Momentum
 
         # Williams %R
         self.df['Williams_%R'] = ((self.df['High'].rolling(window=14, min_periods=1).max() - self.df['Close']) / 
-                                  (self.df['High'].rolling(window=14, min_periods=1).max() - self.df['Low'].rolling(window=14, min_periods=1).min())) * -100
+                                  (self.df['High'].rolling(window=14, min_periods=1).max() - self.df['Low'].rolling(window=14, min_periods=1).min())) * -100   # (Highest High in the past 14 days - Close)/ (Highest High in the past 14 days-Lowest Low in the past 14 days) x -100
 
         # On-Balance Volume (OBV)
-        self.df['OBV'] = (np.sign(self.df['Close'].diff()) * self.df['Volume']).fillna(0).cumsum()
+        self.df['OBV'] = (np.sign(self.df['Close'].diff()) * self.df['Volume']).fillna(0).cumsum() #Close > yesterday's, add todays volume to OBV ; Close < yesterday's, subtract todays volume from OBV
 
         # Drop intermediate columns
         self.df.drop(columns=['20STD'], inplace=True)
