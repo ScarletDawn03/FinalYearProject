@@ -165,7 +165,7 @@ for ticker in tickers:
                     ])
                     file.flush()
 
-                    print(f"✅ Done | RMSE: {rmse:.4f}, MAE: {mae:.4f}, MAPE: {mape:.2f}%\n")
+                    print(f"Done | RMSE: {rmse:.4f}, MAE: {mae:.4f}, MAPE: {mape:.2f}%\n")
 
                 except Exception as e:
                     print(f"Skipping combination due to error: {e}")

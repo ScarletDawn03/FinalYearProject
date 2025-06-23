@@ -211,7 +211,6 @@ for ticker in tickers:
             # final_train_loss = history.history['loss'][-1]
             # final_val_loss = history.history['val_loss'][-1]
 
-
             # Predict and inverse scale predictions
             y_pred_scaled = model.predict(X_test)
             y_pred = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1))
