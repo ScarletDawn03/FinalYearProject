@@ -3,7 +3,7 @@ import numpy as np
 import yfinance as yf
 
 class DataPreprocessing:
-    def __init__(self, ticker=None, df=None, start_date='2010-01-01', end_date='2024-12-31'):
+    def __init__(self, ticker=None, df=None, start_date='2013-01-01', end_date='2024-12-31'):
         """
         Initialize the TechnicalIndicators class with either a DataFrame or a ticker symbol.
         
@@ -14,7 +14,7 @@ class DataPreprocessing:
         - end_date (str): End date for downloading stock data (if ticker is used).
         """
 
-        self.analysis_start_date = '2011-01-01'
+        self.analysis_start_date = '2013-01-01'
         if df is not None:
             self.df = df
         elif ticker is not None:
@@ -23,7 +23,7 @@ class DataPreprocessing:
         else:
             raise ValueError("Either a ticker or a DataFrame must be provided.")
 
-    def download_stock_data(self, ticker, start_date='2010-01-01', end_date='2024-12-31'):
+    def download_stock_data(self, ticker, start_date='2013-01-01', end_date='2024-12-31'):
         """
         Downloads stock data using yfinance for the given ticker and date range.
         
@@ -86,7 +86,6 @@ class DataPreprocessing:
         # Moving Averages
         self.df['20MA'] = self.df['Close'].rolling(window=20, min_periods=1).mean() #Takes sum of closing price of the last 20 days and divide by 20
         self.df['50MA'] = self.df['Close'].rolling(window=50, min_periods=1).mean() #Takes sum of closing price of the last 50 days and divide by 50
-        self.df['200MA'] = self.df['Close'].rolling(window=200, min_periods=1).mean() #Takes closing price of the last 200 days and divide by 200
 
         # Relative Strength Index (RSI)
         delta = self.df['Close'].diff()
@@ -119,9 +118,6 @@ class DataPreprocessing:
                                               abs(self.df['Low'] - self.df['Close'].shift(1))))
         self.df['ATR'] = self.df['TR'].rolling(window=14, min_periods=1).mean() #Simple Moving Average of TR Over a 14 Week Period
         self.df.drop(columns=['TR'], inplace=True)  # Drop intermediate column
-
-        # Rate of Change (ROC)
-        self.df['ROC'] = self.df['Close'].pct_change(periods=10) * 100 # (Closing Price- Closing price 10 weeks ago)/Closing price 10 days ago X 100, ROC>0 =Positive Momentum, ROC<0 = Negative Momentum
 
         # Williams %R
         self.df['Williams_%R'] = ((self.df['High'].rolling(window=14, min_periods=1).max() - self.df['Close']) / 
