@@ -12,7 +12,11 @@ from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error, 
 import optuna
 import logging
 import sys
-import pandas as pd # <--- Make sure this is imported!
+import pandas as pd 
+from functools import partial
+# --- Reusable Functions ---
+from ReusableFunctions.DataPreprocessing import DataPreprocessing
+
 
 # Reproducibility settings
 SEED = 42
@@ -29,8 +33,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
 optuna.logging.set_verbosity(optuna.logging.INFO)
 
-# --- Reusable Functions ---
-from ReusableFunctions.DataPreprocessing import DataPreprocessing
 
 class CNNModel(nn.Module):
     """
@@ -52,6 +54,46 @@ class CNNModel(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc1(x)
         return x
+    
+
+def calculate_profitability_index(y_true: np.ndarray, y_pred: np.ndarray, forecast_window: int, initial_capital: float = 10000.0):
+    """
+    Calculates the profitability index as Final Capital / Initial Capital based on a simple trading strategy.
+    - For forecast_window=1: Buy if predicted price > current price, sell otherwise.
+    - For forecast_window=30: Buy if predicted price > current price, sell otherwise.
+    """
+    capital = initial_capital
+    position = 0  # number of shares held
+    stock_price_history = y_true.flatten()
+    predicted_prices = y_pred.flatten()
+
+    for i in range(len(predicted_prices) - forecast_window):
+        current_price = stock_price_history[i]
+        predicted_future_price = predicted_prices[i]
+
+        if forecast_window == 1:
+            if predicted_future_price > current_price and position == 0:
+                position = capital / current_price  # buy
+                capital = 0
+            elif predicted_future_price < current_price and position > 0:
+                capital = position * current_price  # sell
+                position = 0
+
+        elif forecast_window == 30:
+            if predicted_future_price > current_price and position == 0:
+                position = capital / current_price  # buy
+                capital = 0
+            elif predicted_future_price < current_price and position > 0:
+                capital = position * current_price  # sell
+                position = 0
+
+    # Final liquidation if still holding stock
+    if position > 0:
+        capital = position * stock_price_history[-1]
+
+    return capital / initial_capital  # Profitability Index
+
+
 
 def normalize_data(df: pd.DataFrame, all_indicators: list[str]):
     """
@@ -107,9 +149,10 @@ def train_and_evaluate_model(
     optimizer: torch.optim.Optimizer,
     criterion: nn.Module,
     scaler_y: MinMaxScaler,
-    epochs: int = 20,
-    patience: int = 5 # For early stopping
-) -> tuple[float, float, float, float]: # Returns rmse, mape, r2, accuracy
+    forecast_window: int,
+    epochs: int,
+    patience: int = 10 # For early stopping
+) -> tuple[float, float, float, float, float]: # Returns rmse, mape, r2, accuracy
     """
     Trains the CNN model and evaluates it on the validation set.
     Includes basic early stopping and prints epoch progress.
@@ -171,141 +214,115 @@ def train_and_evaluate_model(
         rmse = np.sqrt(mean_squared_error(y_val_true_unscaled, val_preds_unscaled))
         mape = mean_absolute_percentage_error(y_val_true_unscaled, val_preds_unscaled) * 100
         acc = calculate_accuracy(y_val_true_unscaled, val_preds_unscaled)
-    
-    return rmse, mape, r2, acc
 
-# --- Optuna Objective Function ---
-def objective(trial: optuna.Trial) -> float:
-    """
-    Objective function for Optuna optimization.
-    It evaluates different hyperparameter combinations and indicator sets.
-    """
+    # Profitability Index
+    profitability = calculate_profitability_index(y_val_true_unscaled, val_preds_unscaled, forecast_window=forecast_window)
+
+    
+    return rmse, mape, r2, acc, profitability
+
+
+def objective(trial, df, selected_indicators, ticker, window_size, forecast_window, epochs):
+
+
+    selected_features = ['Close'] + list(selected_indicators)
+    scaler = MinMaxScaler()
+    scaled_data = scaler.fit_transform(df[selected_features])
+
+    hyperparams = {
+        "filters": trial.suggest_categorical("filters", [32, 64, 128]),
+        "kernel_size": trial.suggest_int("kernel_size", 2, 4),
+        "dropout": trial.suggest_float("dropout", 0.2, 0.5, step=0.1),
+        "lr": trial.suggest_float("lr", 0.0001, 0.001, step=0.0001),
+        "batch_size": trial.suggest_categorical("batch_size", [32, 64]),
+        "window_size": window_size, 
+        "forecast_window": forecast_window
+
+    }
+
+    X, y = create_time_series_data(df, scaled_data, hyperparams["window_size"], hyperparams["forecast_window"])
+    X_train, X_val, _, y_train, y_val, _ = split_data(X, y)
+
+    scaler_y = MinMaxScaler()
+    y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
+    y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
+
+    train_loader = DataLoader(
+        TensorDataset(torch.tensor(X_train, dtype=torch.float32).permute(0, 2, 1),
+                      torch.tensor(y_train_scaled, dtype=torch.float32)),
+        batch_size=hyperparams["batch_size"], shuffle=True
+    )
+
+    model = CNNModel(input_shape=(X_train.shape[2], X_train.shape[1]),
+                     filters=hyperparams["filters"],
+                     kernel_size=hyperparams["kernel_size"],
+                     dropout_rate=hyperparams["dropout"]).to(device)
+
+    optimizer = optim.Adam(model.parameters(), lr=hyperparams["lr"])
+    criterion = nn.MSELoss()
+
+    rmse, mape, r2, acc, profit_index= train_and_evaluate_model(
+        model, train_loader, (X_val, y_val_scaled), optimizer, criterion, scaler_y, forecast_window, epochs=epochs
+    )
+
+    # Log results
+    with open(f'stock_results/{ticker}_CNN_results.csv', 'a', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            trial.number, ', '.join(selected_indicators),
+            hyperparams["filters"], hyperparams["kernel_size"], hyperparams["dropout"],
+            hyperparams["lr"], hyperparams["batch_size"],
+            hyperparams["window_size"], hyperparams["forecast_window"],epochs,
+            rmse, mape, r2, acc, profit_index
+        ])
+
+    return -rmse if not np.isnan(rmse) and not np.isinf(rmse) else -1e10
+
+# Main execution block
+if __name__ == '__main__':
     ticker = 'AAPL'
-    print(f"\n--- Starting Optuna Trial {trial.number} ---")
+    os.makedirs('stock_results', exist_ok=True)
+    write_header = not os.path.exists(f'stock_results/{ticker}_CNN_results.csv')
+
+    if write_header:
+        with open(f'stock_results/{ticker}_CNN_results.csv', 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Trial", "Indicators", "Filters", "Kernel Size", "Dropout",
+                "LR", "Batch Size", "Window Size", "Forecast Window", "Epochs"
+                "RMSE", "MAPE", "R2", "Accuracy", "Profit Index"
+            ])
 
     data_processor = DataPreprocessing(ticker=ticker)
     df_with_all_indicators = data_processor.add_technical_indicators()
 
     selected_base_indicators = [
-        '20MA', '50MA', 'RSI', 'MACD', 'Upper_BB', 
+        '20MA', '50MA', 'RSI', 'MACD', 'Upper_BB',
         'Lower_BB', 'CCI', 'ATR', 'Williams_%R', 'OBV'
     ]
+    all_combinations = list(combinations(selected_base_indicators, 5))
+    window_forecast_combos = [(5, 1), (5, 30), (60, 1), (60, 30)]
 
-    df, all_scaled_data = normalize_data(df_with_all_indicators, selected_base_indicators)
 
-    hyperparams = {
-        "filters": trial.suggest_categorical("filters", [32, 64, 128]),
-        "kernel_size": trial.suggest_int("kernel_size", 2, 4),
-        "dropout": trial.suggest_float("dropout", 0.2, 0.5),
-        "lr": trial.suggest_float("lr", 1e-4, 1e-2, log=True),
-        "batch_size": trial.suggest_categorical("batch_size", [32, 64]),
-        "window_size": trial.suggest_categorical("window_size", [5, 60]),
-        "forecast_window": trial.suggest_categorical("forecast_window", [1, 30])   
-    }
-    print(f"Trial {trial.number} Hyperparameters: {hyperparams}")
+    for i, indicator_combo in enumerate(all_combinations):
+     for j, (window_size, forecast_window) in enumerate(window_forecast_combos):
+      for epochs in [50, 100, 150]:
+        print(f"\n=== [{i+1}/{len(all_combinations)}] Combo: {indicator_combo}")
+        print(f"    -> Window Size: {window_size}, Forecast Window: {forecast_window} ===")
 
-    out_dir = 'stock_results'
-    os.makedirs(out_dir, exist_ok=True)
-    csv_path = os.path.join(out_dir, f"{ticker}_optuna_results_CNN_reduced_combinations.csv")
-    
-    write_header = not os.path.exists(csv_path)
-    
-    best_r2_for_trial = -np.inf
+        study = optuna.create_study(direction='maximize')
 
-    with open(csv_path, 'a', newline='') as f:
-        writer = csv.writer(f)
-        if write_header:
-            writer.writerow([
-                "Trial", "Indicators", "Filters", "Kernel Size", "Dropout", 
-                "LR", "Batch Size", "Window Size", "Forecast Window",  # <-- add
-                "RMSE", "MAPE", "R2", "Accuracy"
-            ])
+        study.optimize(
+            partial(
+                objective,
+                df=df_with_all_indicators,
+                selected_indicators=indicator_combo,
+                ticker=ticker,
+                window_size=window_size,
+                forecast_window=forecast_window,
+                epochs=epochs
+            ),
+            n_trials=20
+        )
 
-        total_combinations = len(all_scaled_data)
-        for i, (current_selected_indicators, (scaled_data, _)) in enumerate(all_scaled_data.items()):
-            # Changed this print statement for better clarity with the epoch prints below
-            print(f"\n  Trial {trial.number}: Combination {i+1}/{total_combinations} - Indicators: {', '.join(current_selected_indicators)}")
-            print(f"  -------------------------------------------------------------")
-
-            try:
-                X, y = create_time_series_data(
-                    df_with_all_indicators, scaled_data,
-                    window_size=hyperparams["window_size"],
-                    forecast_window=hyperparams["forecast_window"]
-                )
-                X_train, X_val, _, y_train, y_val, _ = split_data(X, y)
-
-                scaler_y = MinMaxScaler()
-                y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
-                y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
-                
-                train_loader = DataLoader(
-                    TensorDataset(torch.tensor(X_train, dtype=torch.float32).permute(0, 2, 1),
-                                  torch.tensor(y_train_scaled, dtype=torch.float32)),
-                    batch_size=hyperparams["batch_size"],
-                    shuffle=True
-                )
-
-                model = CNNModel(
-                    input_shape=(X_train.shape[2], X_train.shape[1]), 
-                    filters=hyperparams["filters"],
-                    kernel_size=hyperparams["kernel_size"],
-                    dropout_rate=hyperparams["dropout"]
-                ).to(device)
-                
-                optimizer = optim.Adam(model.parameters(), lr=hyperparams["lr"])
-                criterion = nn.MSELoss()
-
-                rmse, mape, r2, acc = train_and_evaluate_model(
-                    model,
-                    train_loader,
-                    (X_val, y_val_scaled),
-                    optimizer,
-                    criterion,
-                    scaler_y
-                )
-                
-                print(f"  -------------------------------------------------------------")
-                print(f"  Combination {i+1}/{total_combinations} Metrics: RMSE={rmse:.4f}, MAPE={mape:.2f}%, R2={r2:.4f}, Accuracy={acc:.2f}%")
-                print(f"  -------------------------------------------------------------")
-
-                writer.writerow([
-                    trial.number,
-                    ', '.join(current_selected_indicators),
-                    hyperparams["filters"], hyperparams["kernel_size"], hyperparams["dropout"], 
-                    hyperparams["lr"], hyperparams["batch_size"],
-                    hyperparams["window_size"], hyperparams["forecast_window"],  
-                    rmse, mape, r2, acc
-                ])
-
-                if r2 > best_r2_for_trial:
-                    best_r2_for_trial = r2
-
-            except Exception as e:
-                print(f"  -------------------------------------------------------------")
-                print(f"  ERROR on combination {', '.join(current_selected_indicators)}: {e}. Logging error and continuing.")
-                print(f"  -------------------------------------------------------------")
-                writer.writerow([
-                    trial.number,
-                    ', '.join(current_selected_indicators),
-                    hyperparams["filters"], hyperparams["kernel_size"], hyperparams["dropout"], 
-                    hyperparams["lr"], hyperparams["batch_size"],
-                    hyperparams["window_size"], hyperparams["forecast_window"],  
-                    "ERROR", str(e), np.nan, np.nan
-                ])
-                continue
-
-    return best_r2_for_trial if best_r2_for_trial > -np.inf else -1.0
-
-# --- Main Execution ---
-if __name__ == '__main__':
-    study = optuna.create_study(direction='maximize')
-    study.optimize(objective, n_trials=20) 
-    
-    print("\n--- Optimization Finished ---")
-    print("Best overall trial (based on best R2 found within a trial):")
-    trial = study.best_trial
-    print(f"  Value (Best R2 in a trial): {trial.value:.4f}")
-    print("  Optimal Hyperparameters: ")
-    for key, value in trial.params.items():
-        print(f"    {key}: {value}")
+        print(f"  -> Best R2 for indicators {indicator_combo} with (w={window_size}, f={forecast_window}): {study.best_trial.value:.4f}")
