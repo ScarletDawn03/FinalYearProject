@@ -35,26 +35,31 @@ optuna.logging.set_verbosity(optuna.logging.INFO)
 
 
 class CNNModel(nn.Module):
-    """
-    A simple 1D CNN model for time series prediction.
-    """
-    def __init__(self, input_shape: tuple, filters: int, kernel_size: int, dropout_rate: float):
+    def __init__(self, input_shape: tuple, filters: int, kernel_size: int, dropout_rate: float, activation: str):
         super(CNNModel, self).__init__()
         self.conv1 = nn.Conv1d(in_channels=input_shape[0], out_channels=filters, kernel_size=kernel_size, padding='same')
         self.pool = nn.MaxPool1d(kernel_size=4)
         self.dropout = nn.Dropout(dropout_rate)
-        
+
+        # Choose activation function
+        if activation == "relu":
+            self.activation = nn.ReLU()
+        elif activation == "leaky_relu":
+            self.activation = nn.LeakyReLU(negative_slope=0.01)
+        else:
+            raise ValueError(f"Unsupported activation: {activation}")
+
         pooled_length = input_shape[1] // 4
         self.fc1 = nn.Linear(filters * pooled_length, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = torch.relu(self.conv1(x))
+        x = self.activation(self.conv1(x))
         x = self.pool(x)
         x = self.dropout(x)
         x = x.view(x.size(0), -1)
         x = self.fc1(x)
         return x
-    
+
 
 def calculate_profitability_index(y_true: np.ndarray, y_pred: np.ndarray, forecast_window: int, initial_capital: float = 10000.0):
     """
@@ -236,8 +241,8 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
         "lr": trial.suggest_float("lr", 0.0001, 0.001, step=0.0001),
         "batch_size": trial.suggest_categorical("batch_size", [32, 64]),
         "window_size": window_size, 
-        "forecast_window": forecast_window
-
+        "forecast_window": forecast_window,
+        "activation": trial.suggest_categorical("activation", ["relu", "leaky_relu"]),
     }
 
     X, y = create_time_series_data(df, scaled_data, hyperparams["window_size"], hyperparams["forecast_window"])
@@ -256,7 +261,9 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
     model = CNNModel(input_shape=(X_train.shape[2], X_train.shape[1]),
                      filters=hyperparams["filters"],
                      kernel_size=hyperparams["kernel_size"],
-                     dropout_rate=hyperparams["dropout"]).to(device)
+                     dropout_rate=hyperparams["dropout"],
+                     activation=hyperparams["activation"]
+                     ).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=hyperparams["lr"])
     criterion = nn.MSELoss()
@@ -273,6 +280,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
             hyperparams["filters"], hyperparams["kernel_size"], hyperparams["dropout"],
             hyperparams["lr"], hyperparams["batch_size"],
             hyperparams["window_size"], hyperparams["forecast_window"],epochs,
+            hyperparams["activation"],
             rmse, mape, r2, acc, profit_index
         ])
 
@@ -289,7 +297,7 @@ if __name__ == '__main__':
             writer = csv.writer(f)
             writer.writerow([
                 "Trial", "Indicators", "Filters", "Kernel Size", "Dropout",
-                "LR", "Batch Size", "Window Size", "Forecast Window", "Epochs"
+                "LR", "Batch Size", "Window Size", "Forecast Window", "Epochs", "Activation Func",
                 "RMSE", "MAPE", "R2", "Accuracy", "Profit Index"
             ])
 
@@ -321,8 +329,9 @@ if __name__ == '__main__':
                 window_size=window_size,
                 forecast_window=forecast_window,
                 epochs=epochs
+                
             ),
-            n_trials=20
+            n_trials=25
         )
 
         print(f"  -> Best R2 for indicators {indicator_combo} with (w={window_size}, f={forecast_window}): {study.best_trial.value:.4f}")
