@@ -11,7 +11,7 @@ df_results = pd.read_csv(csv_path)
 # Assuming the columns are in the following order after the hyperparameters:
 # RMSE, MAPE, R2, Accuracy, Train Loss, Validation Loss
 
-metrics_columns = ["RMSE", "MAPE", "R2", "Accuracy"]
+metrics_columns = ["RMSE", "MAPE", "R2", "Accuracy","Profit Index"]
 
 # Calculate the statistics for each metric
 statistics = {}

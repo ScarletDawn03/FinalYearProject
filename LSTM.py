@@ -26,51 +26,39 @@ set_global_seed(seed=42, framework='torch')
 # Device configuration
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-if torch.cuda.is_available():
-    print("GPU Name:", torch.cuda.get_device_name(0))
-else:
-    print("Running on CPU")
-
-
 # --- Optuna Logging Setup ---
 # Add stream handler of stdout to show the messages
 optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
 optuna.logging.set_verbosity(optuna.logging.INFO)
 
 
-class CNNModel(nn.Module):
-    def __init__(self, input_shape: tuple, filters: int, kernel_size: int, pooling_size: int, dropout_rate: float, activation: str):
-        super(CNNModel, self).__init__()
-        padding = (kernel_size - 1) // 2
-        self.conv1 = nn.Conv1d(in_channels=input_shape[0], out_channels=filters, kernel_size=kernel_size, padding=padding)
+class LSTMModel(nn.Module):
+    def __init__(self, input_size: int, hidden_size: int, num_layers: int, dropout: float, activation: str):
+        super(LSTMModel, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
 
-        self.pool = nn.MaxPool1d(kernel_size=pooling_size)
-        self.dropout = nn.Dropout(dropout_rate)
+        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
+                            num_layers=num_layers, batch_first=True, dropout=dropout)
 
-        # Choose activation function
         if activation == "relu":
             self.activation = nn.ReLU()
         elif activation == "leaky_relu":
-            self.activation = nn.LeakyReLU(negative_slope=0.01)
+            self.activation = nn.LeakyReLU(0.01)
+        elif activation == "tanh":
+            self.activation = nn.Tanh()
         else:
             raise ValueError(f"Unsupported activation: {activation}")
 
-        # Dynamically determine output shape after conv and pool
-        with torch.no_grad():
-            dummy_input = torch.zeros(1, input_shape[0], input_shape[1])
-            x = self.pool(self.activation(self.conv1(dummy_input)))
-            flattened_size = x.view(1, -1).shape[1]
+        self.fc = nn.Linear(hidden_size, 1)
 
-        self.fc1 = nn.Linear(flattened_size, 1)
+    def forward(self, x):
+        # x: (batch_size, seq_len, num_features)
+        out, _ = self.lstm(x)  # out: (batch_size, seq_len, hidden_size)
+        out = self.activation(out[:, -1, :])  # Take last time step
+        out = self.fc(out)
+        return out
 
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.activation(self.conv1(x))
-        x = self.pool(x)
-        x = self.dropout(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc1(x)
-        return x
 
 def train_and_evaluate_model(
     model: nn.Module,
@@ -86,7 +74,8 @@ def train_and_evaluate_model(
     best_val_loss = float('inf')
     epochs_no_improve = 0
 
-    X_val_tensor = torch.tensor(val_data[0], dtype=torch.float32).permute(0, 2, 1).to(device)
+    X_val_tensor = torch.tensor(val_data[0], dtype=torch.float32).to(device)
+
     y_val_scaled_tensor = torch.tensor(val_data[1], dtype=torch.float32).to(device)
 
     for epoch in range(epochs):
@@ -157,37 +146,32 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
     y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
     y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
 
-    # Define hyperparameters
     hyperparams = {
-        "filters": trial.suggest_categorical("filters", [32, 64, 128]),
-        "kernel_size": trial.suggest_int("kernel_size", 2, 3),
-        "pooling_size": trial.suggest_int("pooling_size", 2, 3),
-        "dropout": trial.suggest_float("dropout", 0.2, 0.5, step=0.1),
+        "hidden_size": trial.suggest_categorical("hidden_size", [32, 64, 128]),
+        "dropout": trial.suggest_float("dropout", 0.2, 0.7, step=0.1),
         "lr": trial.suggest_categorical("lr", [0.0001, 0.001]),
-        "batch_size": trial.suggest_categorical("batch_size", [32, 64]),
+        "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64]),
+        "activation": trial.suggest_categorical("activation", ["relu", "leaky_relu", "tanh"]),
         "window_size": window_size,
         "forecast_window": forecast_window,
-        "activation": trial.suggest_categorical("activation", ["relu", "leaky_relu"]),   
     }
-
     epochs = trial.suggest_categorical("epochs", [50, 100, 150])
 
-    # Create data loader
+    # DataLoader (already correct)
     train_loader = DataLoader(
-        TensorDataset(torch.tensor(X_train, dtype=torch.float32).permute(0, 2, 1),
-                      torch.tensor(y_train_scaled, dtype=torch.float32)),
+        TensorDataset(torch.tensor(X_train, dtype=torch.float32), torch.tensor(y_train_scaled, dtype=torch.float32)),
         batch_size=hyperparams["batch_size"], shuffle=True
     )
 
-    # Build model
-    model = CNNModel(
-        input_shape=(X_train.shape[2], X_train.shape[1]),
-        filters=hyperparams["filters"],
-        kernel_size=hyperparams["kernel_size"],
-        pooling_size=hyperparams["pooling_size"],
-        dropout_rate=hyperparams["dropout"],
+    # Build LSTM model
+    model = LSTMModel(
+        input_size=X_train.shape[2],
+        hidden_size=hyperparams["hidden_size"],
+        num_layers=1,
+        dropout=hyperparams["dropout"],
         activation=hyperparams["activation"]
     ).to(device)
+
 
     optimizer = optim.Adam(model.parameters(), lr=hyperparams["lr"])
     criterion = nn.MSELoss()
@@ -199,11 +183,11 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
     )
 
     # Log results
-    with open(f'stock_results/{ticker}_CNN_results.csv', 'a', newline='') as f:
+    with open(f'stock_results/{ticker}_LSTM_results.csv', 'a', newline='') as f:
         writer = csv.writer(f)
         writer.writerow([
             trial.number, ', '.join(selected_indicators),
-            hyperparams["filters"], hyperparams["kernel_size"], hyperparams["pooling_size"], hyperparams["dropout"],
+            hyperparams["hidden_size"], hyperparams["dropout"],
             hyperparams["lr"], hyperparams["batch_size"],
             hyperparams["window_size"], hyperparams["forecast_window"], epochs,
             hyperparams["activation"],
@@ -217,23 +201,23 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
 if __name__ == '__main__':
     ticker = 'AAPL'
     os.makedirs('stock_results', exist_ok=True)
-    write_header = not os.path.exists(f'stock_results/{ticker}_CNN_results.csv')
+    write_header = not os.path.exists(f'stock_results/{ticker}_LSTM_results.csv')
 
     if write_header:
-        with open(f'stock_results/{ticker}_CNN_results.csv', 'w', newline='') as f:
+        with open(f'stock_results/{ticker}_LSTM_results.csv', 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([
-                "Trial", "Indicators", "Filters", "Kernel Size", "Pooling Size", "Dropout",
-                "LR", "Batch Size", "Window Size", "Forecast Window", "Epochs", "Activation Func",
-                "RMSE", "MAPE", "R2", "Accuracy", "Profit Index"
-            ])
+            "Trial", "Indicators", "Hidden Size", "Dropout", "LR", "Batch Size",
+            "Window Size", "Forecast Window", "Epochs", "Activation Func",
+            "RMSE", "MAPE", "R2", "Accuracy", "Profit Index"
+        ])
 
     data_processor = DataPreprocessing(ticker=ticker)
     df_with_all_indicators = data_processor.add_technical_indicators()
     # Save raw + indicator-enhanced data
     os.makedirs('check', exist_ok=True)
-    df_with_all_indicators.to_csv(f'check/{ticker}_CNN_downloaded_data.csv', index=True)
-    print(f"Downloaded and processed data saved to check/{ticker}_CNN_downloaded_data.csv")
+    df_with_all_indicators.to_csv(f'check/{ticker}_LSTM_downloaded_data.csv', index=True)
+    print(f"Downloaded and processed data saved to check/{ticker}_LSTM_downloaded_data.csv")
 
 
     selected_base_indicators = [
@@ -267,6 +251,6 @@ if __name__ == '__main__':
 
  
     # After all Optuna trials have been completed
-    csv_path = f'stock_results/{ticker}_CNN_results.csv'
+    csv_path = f'stock_results/{ticker}_LSTM_results.csv'
     record_best_models(csv_path)
 

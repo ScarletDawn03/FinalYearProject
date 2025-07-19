@@ -1,9 +1,11 @@
 import pandas as pd
 import numpy as np
 import yfinance as yf
+from itertools import combinations
+from sklearn.preprocessing import MinMaxScaler
 
 class DataPreprocessing:
-    def __init__(self, ticker=None, df=None, start_date='2013-01-01', end_date='2024-12-31'):
+    def __init__(self, ticker=None, df=None, start_date='2014-01-01', end_date='2024-12-31'):
         """
         Initialize the TechnicalIndicators class with either a DataFrame or a ticker symbol.
         
@@ -14,7 +16,7 @@ class DataPreprocessing:
         - end_date (str): End date for downloading stock data (if ticker is used).
         """
 
-        self.analysis_start_date = '2013-01-01'
+        self.analysis_start_date = '2015-01-01'
         if df is not None:
             self.df = df
         elif ticker is not None:
@@ -23,7 +25,7 @@ class DataPreprocessing:
         else:
             raise ValueError("Either a ticker or a DataFrame must be provided.")
 
-    def download_stock_data(self, ticker, start_date='2013-01-01', end_date='2024-12-31'):
+    def download_stock_data(self, ticker, start_date='2014-01-01', end_date='2024-12-31'):
         """
         Downloads stock data using yfinance for the given ticker and date range.
         
@@ -39,37 +41,34 @@ class DataPreprocessing:
         return data
     
     def remove_exdividend_and_earnings_dates(self, ticker):
-        """
-        Removes rows from the DataFrame that correspond to ex-dividend and earnings dates.
-
-        Args:
-        - ticker (str): Ticker symbol to fetch the actions and earnings dates from.
-        """
         ticker_obj = yf.Ticker(ticker)
 
         # Get ex-dividend dates
         try:
             ex_dividends = ticker_obj.actions[ticker_obj.actions['Dividends'] > 0].index
+            ex_dividends = ex_dividends.tz_localize(None).normalize()
         except Exception as e:
             print("Could not retrieve ex-dividend dates:", e)
-            ex_dividends = []
+            ex_dividends = pd.Index([])
 
         # Get earnings dates
         try:
             earnings_calendar = ticker_obj.earnings_dates
             earnings_dates = earnings_calendar.index
+            earnings_dates = earnings_dates.tz_localize(None).normalize()
         except Exception as e:
             print("Could not retrieve earnings dates:", e)
-            earnings_dates = []
+            earnings_dates = pd.Index([])
 
-        # Combine all dates to exclude
-        combined_dates = ex_dividends.append(earnings_dates)
-        dates_to_exclude = combined_dates.drop_duplicates()
+        # Combine all dates
+        combined_dates = ex_dividends.append(earnings_dates).drop_duplicates()
 
+        # Normalize your dataframe index
+        self.df.index = self.df.index.tz_localize(None).normalize()
 
         # Remove from DataFrame
         before = len(self.df)
-        self.df = self.df[~self.df.index.isin(dates_to_exclude)]
+        self.df = self.df[~self.df.index.isin(combined_dates)]
         after = len(self.df)
 
         print(f"Removed {before - after} rows corresponding to ex-dividend and earnings dates.")
@@ -140,3 +139,49 @@ class DataPreprocessing:
         
         # Return only rows from analysis start date forward
         return self.df.loc[self.analysis_start_date:]
+    
+    def normalize_indicator_combinations(self, all_indicators: list[str]):
+        indicator_combinations = list(combinations(all_indicators, 5)) 
+        all_scaled_data = {}
+        for selected_indicators in indicator_combinations:
+            selected_features = ['Close'] + list(selected_indicators)
+            scaler = MinMaxScaler()
+            scaled_data = scaler.fit_transform(self.df[selected_features])
+            all_scaled_data[selected_indicators] = (scaled_data, scaler)
+        return all_scaled_data
+
+    def create_windowed_data(self, scaled_data, window_size: int = 50, forecast_window: int = 1):
+        X, y = [], []
+        for i in range(window_size, len(scaled_data) - forecast_window + 1):
+            X.append(scaled_data[i - window_size:i])
+            y.append(scaled_data[i + forecast_window - 1][0])  # assuming Close is the first feature
+        return np.array(X), np.array(y)
+
+    def split_dataset(self, X: np.ndarray, y: np.ndarray, train_size: float = 0.7, val_size: float = 0.1):
+        total_samples = len(X)
+        train_end = int(total_samples * train_size)
+        val_end = train_end + int(total_samples * val_size)
+        
+        return (
+            X[:train_end], X[train_end:val_end], X[val_end:],
+            y[:train_end], y[train_end:val_end], y[val_end:]
+        )
+    
+    def split_train_test_80_20(self, X: np.ndarray, y: np.ndarray):
+        """
+        Splits the dataset into 80% training and 20% testing sets.
+        
+        Args:
+            X (np.ndarray): Input features.
+            y (np.ndarray): Target values.
+        
+        Returns:
+            Tuple: X_train, X_test, y_train, y_test
+        """
+        total_samples = len(X)
+        split_index = int(total_samples * 0.8)
+        
+        return (
+            X[:split_index], X[split_index:],
+            y[:split_index], y[split_index:]
+        )
