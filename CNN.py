@@ -86,6 +86,8 @@ def train_and_evaluate_model(
     best_val_loss = float('inf')
     epochs_no_improve = 0
 
+    print("Model is on device:", next(model.parameters()).device)
+
     X_val_tensor = torch.tensor(val_data[0], dtype=torch.float32).permute(0, 2, 1).to(device)
     y_val_scaled_tensor = torch.tensor(val_data[1], dtype=torch.float32).to(device)
 
@@ -176,7 +178,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
     train_loader = DataLoader(
         TensorDataset(torch.tensor(X_train, dtype=torch.float32).permute(0, 2, 1),
                       torch.tensor(y_train_scaled, dtype=torch.float32)),
-        batch_size=hyperparams["batch_size"], shuffle=True
+        batch_size=hyperparams["batch_size"], shuffle=False
     )
 
     # Build model
@@ -215,7 +217,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
 
 # Main execution block
 if __name__ == '__main__':
-    ticker = 'AAPL'
+    ticker = '1023.KL'
     os.makedirs('stock_results', exist_ok=True)
     write_header = not os.path.exists(f'stock_results/{ticker}_CNN_results.csv')
 

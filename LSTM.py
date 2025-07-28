@@ -25,6 +25,8 @@ set_global_seed(seed=42, framework='torch')
 
 # Device configuration
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if torch.cuda.is_available():
+    print("GPU Name:", torch.cuda.get_device_name(0))
 
 # --- Optuna Logging Setup ---
 # Add stream handler of stdout to show the messages
@@ -73,6 +75,8 @@ def train_and_evaluate_model(
 ) -> tuple[float, float, float, float, float]:
     best_val_loss = float('inf')
     epochs_no_improve = 0
+
+    print("Model is on device:", next(model.parameters()).device)
 
     X_val_tensor = torch.tensor(val_data[0], dtype=torch.float32).to(device)
 
@@ -148,8 +152,8 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
 
     hyperparams = {
         "hidden_size": trial.suggest_categorical("hidden_size", [32, 64, 128]),
-        "dropout": trial.suggest_float("dropout", 0.2, 0.7, step=0.1),
-        "lr": trial.suggest_categorical("lr", [0.0001, 0.001]),
+        "dropout": trial.suggest_float("dropout", 0.5, 0.8, step=0.1),
+        "lr": trial.suggest_categorical("lr", [0.0001, 0.0005, 0.001]),
         "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64]),
         "activation": trial.suggest_categorical("activation", ["relu", "leaky_relu", "tanh"]),
         "window_size": window_size,
@@ -160,7 +164,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
     # DataLoader (already correct)
     train_loader = DataLoader(
         TensorDataset(torch.tensor(X_train, dtype=torch.float32), torch.tensor(y_train_scaled, dtype=torch.float32)),
-        batch_size=hyperparams["batch_size"], shuffle=True
+        batch_size=hyperparams["batch_size"], shuffle=False
     )
 
     # Build LSTM model
