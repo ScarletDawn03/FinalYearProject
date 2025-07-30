@@ -159,6 +159,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
         "window_size": window_size,
         "forecast_window": forecast_window,
     }
+    
     epochs = trial.suggest_categorical("epochs", [50, 100, 150])
 
     # DataLoader (already correct)
