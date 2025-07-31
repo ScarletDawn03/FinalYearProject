@@ -203,7 +203,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
 
 # Main execution block
 if __name__ == '__main__':
-    ticker = 'AAPL'
+    ticker = '5258.KL'
     os.makedirs('stock_results', exist_ok=True)
     write_header = not os.path.exists(f'stock_results/{ticker}_LSTM_results.csv')
 
@@ -232,36 +232,28 @@ if __name__ == '__main__':
     window_forecast_combos = [(60, 1), (60, 30)]
 
 
-    start_combo_index = 161  # Change to your desired start index
-    start_config_index = 1  # 0: (60,1), 1: (60,30)
-
     for i, indicator_combo in enumerate(all_combinations):
-        if i < start_combo_index:
-            continue
+     for j, (window_size, forecast_window) in enumerate(window_forecast_combos):
+        print(f"\n=== [{i+1}/{len(all_combinations)}] Combo: {indicator_combo}")
+        print(f"    -> Window Size: {window_size}, Forecast Window: {forecast_window} ===")
 
-        for j, (window_size, forecast_window) in enumerate(window_forecast_combos):
-            if i == start_combo_index and j < start_config_index:
-                continue
-            print(f"\n=== [{i+1}/{len(all_combinations)}] Combo: {indicator_combo}")
-            print(f"    -> Window Size: {window_size}, Forecast Window: {forecast_window} ===")
+        study = optuna.create_study(direction='maximize')
 
-            study = optuna.create_study(direction='maximize')
+        study.optimize(
+            partial(
+                objective,
+                df=df_with_all_indicators,
+                selected_indicators=indicator_combo,
+                ticker=ticker,
+                window_size=window_size,
+                forecast_window=forecast_window,       
+            ),
+            n_trials=25
+        )
 
-            study.optimize(
-                partial(
-                    objective,
-                    df=df_with_all_indicators,
-                    selected_indicators=indicator_combo,
-                    ticker=ticker,
-                    window_size=window_size,
-                    forecast_window=forecast_window,       
-                ),
-                n_trials=25
-            )
+        print(f"  -> Best R2 for indicators {indicator_combo} with (w={window_size}, f={forecast_window}): {study.best_trial.value:.4f}")
 
-            print(f"  -> Best R2 for indicators {indicator_combo} with (w={window_size}, f={forecast_window}): {study.best_trial.value:.4f}")
-
-    
+ 
     # After all Optuna trials have been completed
     csv_path = f'stock_results/{ticker}_LSTM_results.csv'
     record_best_models(csv_path)
