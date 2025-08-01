@@ -165,7 +165,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
         "kernel_size": trial.suggest_int("kernel_size", 2, 3),
         "pooling_size": trial.suggest_int("pooling_size", 2, 3),
         "dropout": trial.suggest_float("dropout", 0.2, 0.5, step=0.1),
-        "lr": trial.suggest_categorical("lr", [0.0001, 0.001]),
+        "lr": trial.suggest_categorical("lr", [0.0001, 0.0005, 0.001]),
         "batch_size": trial.suggest_categorical("batch_size", [32, 64]),
         "window_size": window_size,
         "forecast_window": forecast_window,
@@ -217,7 +217,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
 
 # Main execution block
 if __name__ == '__main__':
-    ticker = '5258.KL'
+    ticker = 'QCOM'
     os.makedirs('stock_results', exist_ok=True)
     write_header = not os.path.exists(f'stock_results/{ticker}_CNN_results.csv')
 

@@ -42,7 +42,14 @@ class SLSTMModel(nn.Module):
             dropout=dropout if num_layers > 1 else 0,
             batch_first=True
         )
-        self.act_lstm = getattr(torch, act_lstm)() if act_lstm != 'identity' else nn.Identity()
+        
+        activation_map = {
+            "tanh": nn.Tanh,
+            "sigmoid": nn.Sigmoid,
+            "identity": nn.Identity
+        }
+        self.act_lstm = activation_map[act_lstm]()
+
 
         # Dense layers based on config
         dense_layers = []
@@ -151,12 +158,12 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
     y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
 
     hyperparams = {
-        "lstm_units": trial.suggest_categorical("lstm_units", [64, 128]),
+        "lstm_units": trial.suggest_categorical("lstm_units", [16, 32, 64, 128]),
         "num_layers": trial.suggest_int("num_layers", 2, 3),
-        "dropout": trial.suggest_float("dropout", 0.2, 0.7, step=0.1),
-        "lr": trial.suggest_categorical("lr", [0.0001, 0.001]),
+        "dropout": trial.suggest_float("dropout", 0.2, 0.8, step=0.1),
+        "lr": trial.suggest_categorical("lr", [0.0001,0.0005, 0.001]),
         "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64]),
-        "dense_config": trial.suggest_categorical("dense_config", [(16, 1), (32, 1), (64, 1), (16,), (1,)]),
+        "dense_config": trial.suggest_categorical("dense_config", [(16,), (25,),(16, 1), (25, 1)]),
         "act_lstm": trial.suggest_categorical("act_lstm", ["tanh", "sigmoid"]),
         "act_dense": trial.suggest_categorical("act_dense", ["ReLU"]),
         "window_size": window_size,

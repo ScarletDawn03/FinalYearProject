@@ -45,10 +45,10 @@ class LSTMModel(nn.Module):
 
         if activation == "relu":
             self.activation = nn.ReLU()
-        elif activation == "leaky_relu":
-            self.activation = nn.LeakyReLU(0.01)
         elif activation == "tanh":
             self.activation = nn.Tanh()
+        elif activation == "sigmoid":
+            self.activation = nn.Sigmoid()
         else:
             raise ValueError(f"Unsupported activation: {activation}")
 
@@ -152,10 +152,10 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
 
     hyperparams = {
         "hidden_size": trial.suggest_categorical("hidden_size", [32, 64, 128]),
-        "dropout": trial.suggest_float("dropout", 0.5, 0.8, step=0.1),
+        "dropout": trial.suggest_float("dropout", 0.2, 0.8, step=0.1),
         "lr": trial.suggest_categorical("lr", [0.0001, 0.0005, 0.001]),
         "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64]),
-        "activation": trial.suggest_categorical("activation", ["relu", "leaky_relu", "tanh"]),
+        "activation": trial.suggest_categorical("activation", ["relu", "tanh", "sigmoid"]),
         "window_size": window_size,
         "forecast_window": forecast_window,
     }
@@ -204,7 +204,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
 
 # Main execution block
 if __name__ == '__main__':
-    ticker = '1023.KL'
+    ticker = 'AAPL'
     os.makedirs('stock_results', exist_ok=True)
     write_header = not os.path.exists(f'stock_results/{ticker}_LSTM_results.csv')
 
