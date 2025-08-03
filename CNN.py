@@ -81,10 +81,12 @@ def train_and_evaluate_model(
     scaler_y: MinMaxScaler,
     forecast_window: int,
     epochs: int,
-    patience: int = 10  # For early stopping
+    patience: float = 0.2  # For early stopping
 ) -> tuple[float, float, float, float, float]:
     best_val_loss = float('inf')
     epochs_no_improve = 0
+    actual_patience = int(patience * epochs) if isinstance(patience, float) else patience
+
 
     print("Model is on device:", next(model.parameters()).device)
 
@@ -114,7 +116,7 @@ def train_and_evaluate_model(
             else:
                 epochs_no_improve += 1
                 print(f" (No improvement for {epochs_no_improve}/{patience} epochs)")
-                if epochs_no_improve >= patience:
+                if epochs_no_improve >= actual_patience:
                     print(f"        Early stopping triggered at epoch {epoch+1}.")
                     break
 
@@ -217,7 +219,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
 
 # Main execution block
 if __name__ == '__main__':
-    ticker = 'AAPL'
+    ticker = '1023.KL'
     os.makedirs('stock_results', exist_ok=True)
     write_header = not os.path.exists(f'stock_results/{ticker}_CNN_results.csv')
 

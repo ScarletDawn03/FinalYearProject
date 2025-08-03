@@ -82,10 +82,6 @@ class DataPreprocessing:
         """
         pd.options.mode.chained_assignment = None  # Disable warnings for chained assignments
 
-        # Forward-fill and backward-fill NaN values
-        self.df.ffill(inplace=True)
-        self.df.bfill(inplace=True)
-
         # Moving Averages
         self.df['20MA'] = self.df['Close'].rolling(window=20, min_periods=1).mean() #Takes sum of closing price of the last 20 days and divide by 20
         self.df['50MA'] = self.df['Close'].rolling(window=50, min_periods=1).mean() #Takes sum of closing price of the last 50 days and divide by 50
@@ -131,6 +127,10 @@ class DataPreprocessing:
 
         # Drop intermediate columns
         self.df.drop(columns=['20STD'], inplace=True)
+
+         #Forward-fill and backward-fill NaN values
+        self.df.ffill(inplace=True)
+        self.df.bfill(inplace=True)
 
         # Verify no NaN values exist
         print("Null values in each column:\n", self.df.isnull().sum())
