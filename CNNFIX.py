@@ -218,7 +218,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
 
 # Main execution block
 if __name__ == '__main__':
-    ticker = 'QCOM'
+    ticker = 'C'
     os.makedirs('stock_results', exist_ok=True)
     write_header = not os.path.exists(f'stock_results/{ticker}_CNN_results.csv')
 
@@ -247,8 +247,8 @@ if __name__ == '__main__':
     window_forecast_combos = [(60, 1), (60, 30)]
 
 
-    start_combo_index = 191  # Change to your desired start index
-    start_config_index = 0  # 0: (60,1), 1: (60,30)
+    start_combo_index = 206  # Change to your desired start index
+    start_config_index = 1  # 0: (60,1), 1: (60,30)
 
     for i, indicator_combo in enumerate(all_combinations):
         if i < start_combo_index:
