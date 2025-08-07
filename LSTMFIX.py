@@ -45,10 +45,10 @@ class LSTMModel(nn.Module):
 
         if activation == "relu":
             self.activation = nn.ReLU()
-        elif activation == "leaky_relu":
-            self.activation = nn.LeakyReLU(0.01)
         elif activation == "tanh":
             self.activation = nn.Tanh()
+        elif activation == "sigmoid":
+            self.activation = nn.Sigmoid()
         else:
             raise ValueError(f"Unsupported activation: {activation}")
 
@@ -71,10 +71,12 @@ def train_and_evaluate_model(
     scaler_y: MinMaxScaler,
     forecast_window: int,
     epochs: int,
-    patience: int = 10  # For early stopping
+    patience: float=0.2  # For early stopping
 ) -> tuple[float, float, float, float, float]:
     best_val_loss = float('inf')
     epochs_no_improve = 0
+    actual_patience = int(patience * epochs) if isinstance(patience, float) else patience
+
 
     print("Model is on device:", next(model.parameters()).device)
 
@@ -104,8 +106,8 @@ def train_and_evaluate_model(
                 print(" (New best!)")
             else:
                 epochs_no_improve += 1
-                print(f" (No improvement for {epochs_no_improve}/{patience} epochs)")
-                if epochs_no_improve >= patience:
+                print(f" (No improvement for {epochs_no_improve} epochs)")
+                if epochs_no_improve >= actual_patience:
                     print(f"        Early stopping triggered at epoch {epoch+1}.")
                     break
 
@@ -152,13 +154,14 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
 
     hyperparams = {
         "hidden_size": trial.suggest_categorical("hidden_size", [32, 64, 128]),
-        "dropout": trial.suggest_float("dropout", 0.5, 0.8, step=0.1),
+        "dropout": trial.suggest_float("dropout", 0.2, 0.8, step=0.1),
         "lr": trial.suggest_categorical("lr", [0.0001, 0.0005, 0.001]),
         "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64]),
-        "activation": trial.suggest_categorical("activation", ["relu", "leaky_relu", "tanh"]),
+        "activation": trial.suggest_categorical("activation", ["relu", "tanh", "sigmoid"]),
         "window_size": window_size,
         "forecast_window": forecast_window,
     }
+    
     epochs = trial.suggest_categorical("epochs", [50, 100, 150])
 
     # DataLoader (already correct)
@@ -232,8 +235,8 @@ if __name__ == '__main__':
     window_forecast_combos = [(60, 1), (60, 30)]
 
 
-    start_combo_index = 161  # Change to your desired start index
-    start_config_index = 1  # 0: (60,1), 1: (60,30)
+    start_combo_index = 120  # Change to your desired start index
+    start_config_index = 0  # 0: (60,1), 1: (60,30)
 
     for i, indicator_combo in enumerate(all_combinations):
         if i < start_combo_index:
