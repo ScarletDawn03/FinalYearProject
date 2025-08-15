@@ -17,7 +17,6 @@ venv/
 
 # Data / Outputs
 check/
-stock_results/
 
 # System files
 .DS_Store

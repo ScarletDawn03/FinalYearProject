@@ -1,0 +1,2 @@
+Trial,Indicators,LSTM Units,Layers,Dropout,LR,Batch Size,Window Size,Forecast Window,Epochs,Dense Config,Dense Activation,RMSE,MAPE,R2,Accuracy,Profit Index
+0,"20MA, 50MA, RSI, MACD, Upper_BB, Lower_BB",32,3,0.6000000000000001,0.0001,32,60,1,50,"(16, 1)",ReLU,0.03986596115831654,6.319015003050079,0.43854628579899524,43.75,0.659430117316059

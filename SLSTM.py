@@ -33,8 +33,10 @@ optuna.logging.set_verbosity(optuna.logging.INFO)
 
 
 class SLSTMModel(nn.Module):
-    def __init__(self, input_size, lstm_units, num_layers, dropout, dense_config, act_lstm, act_dense):
+    def __init__(self, input_size, lstm_units, num_layers, dropout, dense_config, act_dense):
         super(SLSTMModel, self).__init__()
+
+        # LSTM layers (internal activations fixed: tanh & sigmoid)
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=lstm_units,
@@ -42,30 +44,32 @@ class SLSTMModel(nn.Module):
             dropout=dropout if num_layers > 1 else 0,
             batch_first=True
         )
-        
-        activation_map = {
-            "tanh": nn.Tanh,
-            "sigmoid": nn.Sigmoid,
-            "identity": nn.Identity
-        }
-        self.act_lstm = activation_map[act_lstm]()
 
+        # Map activation names to PyTorch classes for dense layers
+        activation_map = {
+            "ReLU": nn.ReLU,
+            "Tanh": nn.Tanh,
+            "Sigmoid": nn.Sigmoid
+        }
 
         # Dense layers based on config
         dense_layers = []
         prev_units = lstm_units
-        for units in dense_config:
+        for i, units in enumerate(dense_config):
             dense_layers.append(nn.Linear(prev_units, units))
-            if units != 1:  # No activation after final output
-                dense_layers.append(getattr(nn, act_dense)())
+            # Add activation if not the last layer
+            if i < len(dense_config) - 1:
+                dense_layers.append(activation_map[act_dense]())
             prev_units = units
+
         self.fc = nn.Sequential(*dense_layers)
 
     def forward(self, x):
         out, _ = self.lstm(x)
-        out = self.act_lstm(out[:, -1, :])
-        out=self.fc(out)
+        out = out[:, -1, :]  # Last time step's hidden state
+        out = self.fc(out)
         return out
+
 
 
 
@@ -166,8 +170,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
         "lr": trial.suggest_categorical("lr", [0.0001,0.0005, 0.001]),
         "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64]),
         "dense_config": trial.suggest_categorical("dense_config", [(16,), (25,),(16, 1), (25, 1)]),
-        "act_lstm": trial.suggest_categorical("act_lstm", ["tanh", "sigmoid"]),
-        "act_dense": trial.suggest_categorical("act_dense", ["ReLU"]),
+        "act_dense": trial.suggest_categorical("act_dense", ["ReLU", "Tanh", "Sigmoid"]),
         "window_size": window_size,
         "forecast_window": forecast_window,
     }
@@ -187,7 +190,6 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
         num_layers=hyperparams["num_layers"],
         dropout=hyperparams["dropout"],
         dense_config=hyperparams["dense_config"],
-        act_lstm=hyperparams["act_lstm"],
         act_dense=hyperparams["act_dense"]
     ).to(device)
 
@@ -210,7 +212,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
             hyperparams["lstm_units"], hyperparams["num_layers"], hyperparams["dropout"],
             hyperparams["lr"], hyperparams["batch_size"],
             hyperparams["window_size"], hyperparams["forecast_window"], epochs,
-            hyperparams["act_lstm"], hyperparams["dense_config"], hyperparams["act_dense"],
+            hyperparams["dense_config"], hyperparams["act_dense"],
             rmse, mape, r2, acc, profit_index
         ])
 
@@ -228,7 +230,7 @@ if __name__ == '__main__':
             writer = csv.writer(f)
             writer.writerow([
                 "Trial", "Indicators", "LSTM Units", "Layers", "Dropout", "LR", "Batch Size",
-                "Window Size", "Forecast Window", "Epochs", "LSTM Activation", "Dense Config", "Dense Activation",
+                "Window Size", "Forecast Window", "Epochs", "Dense Config", "Dense Activation",
                 "RMSE", "MAPE", "R2", "Accuracy", "Profit Index"
             ])
 
@@ -249,25 +251,25 @@ if __name__ == '__main__':
 
 
     for i, indicator_combo in enumerate(all_combinations):
-     for j, (window_size, forecast_window) in enumerate(window_forecast_combos):
-        print(f"\n=== [{i+1}/{len(all_combinations)}] Combo: {indicator_combo}")
-        print(f"    -> Window Size: {window_size}, Forecast Window: {forecast_window} ===")
+        for j, (window_size, forecast_window) in enumerate(window_forecast_combos):
+            print(f"\n=== [{i+1}/{len(all_combinations)}] Combo: {indicator_combo}")
+            print(f"    -> Window Size: {window_size}, Forecast Window: {forecast_window} ===")
 
-        study = optuna.create_study(direction='maximize')
+            study = optuna.create_study(direction='maximize')
 
-        study.optimize(
-            partial(
-                objective,
-                df=df_with_all_indicators,
-                selected_indicators=indicator_combo,
-                ticker=ticker,
-                window_size=window_size,
-                forecast_window=forecast_window,       
-            ),
-            n_trials=25
-        )
+            study.optimize(
+                partial(
+                    objective,
+                    df=df_with_all_indicators,
+                    selected_indicators=indicator_combo,
+                    ticker=ticker,
+                    window_size=window_size,
+                    forecast_window=forecast_window,       
+                ),
+                n_trials=25
+            )
 
-        print(f"  -> Best R2 for indicators {indicator_combo} with (w={window_size}, f={forecast_window}): {study.best_trial.value:.4f}")
+            print(f"  -> Best R2 for indicators {indicator_combo} with (w={window_size}, f={forecast_window}): {study.best_trial.value:.4f}")
 
  
     # After all Optuna trials have been completed
