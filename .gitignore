@@ -27,3 +27,10 @@ Thumbs.db
 
 # Node.js dependencies
 node_modules/
+
+# Ignore the downloaded VS Code installer
+vscode.deb
+
+# Ignore wget logs
+wget-log
+wget-log.1

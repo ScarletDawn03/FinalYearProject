@@ -206,7 +206,7 @@ def objective(trial, df, selected_indicators, ticker, window_size, forecast_wind
 
 # Main execution block
 if __name__ == '__main__':
-    ticker = '0166.KL'
+    ticker = '5258.KL'
     os.makedirs('stock_results', exist_ok=True)
     write_header = not os.path.exists(f'stock_results/{ticker}_LSTM_results.csv')
 
@@ -235,7 +235,7 @@ if __name__ == '__main__':
     window_forecast_combos = [(60, 1), (60, 30)]
 
 
-    start_combo_index = 209# Change to yosur desired start index
+    start_combo_index = 207 # Change to your desired start index
     start_config_index = 1 # 0: (60,1), 1: (60,30)
 
     for i, indicator_combo in enumerate(all_combinations):
