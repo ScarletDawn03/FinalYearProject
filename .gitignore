@@ -1,6 +1,8 @@
 node_modules/
 .env
 venv/
+cache/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -34,3 +36,6 @@ vscode.deb
 # Ignore wget logs
 wget-log
 wget-log.1
+
+#cache 
+*.npy
