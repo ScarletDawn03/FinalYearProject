@@ -175,14 +175,14 @@ def objective(trial, cached_data, selected_indicators, ticker, window_size, fore
     scaler_y = cached_data["scaler_y"]
 
     hyperparams = {
-        "lstm_units": trial.suggest_categorical("lstm_units", [16, 32, 64]),
+        "lstm_units": trial.suggest_categorical("lstm_units", [16, 32, 64, 128]),
         "num_layers": 2,
-        "dropout": trial.suggest_float("dropout", 0.2, 0.5, step=0.1),
+        "dropout": trial.suggest_float("dropout", 0.2, 0.8, step=0.1),
         "lr": trial.suggest_categorical("lr", [0.0001, 0.0005, 0.001]),
-        "batch_size": trial.suggest_categorical("batch_size", [16, 32]),
+        "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64]),
         "dense_config": trial.suggest_categorical("dense_config", [(16, 1), (25, 1)]),
-        "act_dense": trial.suggest_categorical("act_dense", ["ReLU", "Tanh"]),
-        "epochs": trial.suggest_categorical("epochs", [30,60,90])
+        "act_dense": trial.suggest_categorical("act_dense", ["ReLU", "Tanh","Sigmoid"]),
+        "epochs": trial.suggest_categorical("epochs", [50,100,150])
     }
 
     train_loader = DataLoader(
@@ -228,7 +228,7 @@ def objective(trial, cached_data, selected_indicators, ticker, window_size, fore
 # Main Execution
 # -------------------------------
 if __name__ == '__main__':
-    ticker = 'BK'
+    ticker = 'QCOM'
     os.makedirs('stock_results', exist_ok=True)
 
     if not os.path.exists(f'stock_results/{ticker}_SLSTM_results.csv'):
