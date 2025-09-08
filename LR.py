@@ -2,40 +2,26 @@ import os
 import csv
 import numpy as np
 from itertools import combinations
-from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import MinMaxScaler
 from ReusableFunctions.DataPreprocessing import DataPreprocessing
 from ReusableFunctions.EvaluationMetrics import EvaluationMetrics as EM
 from ReusableFunctions.RecordBestModel import record_best_models
-import optuna
-import logging
-import sys
-from functools import partial
-
-# --- Optuna Logging Setup ---
-optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
-optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 # -------------------------------
 # Training + Evaluation
 # -------------------------------
-def train_and_evaluate_linear_model(X_train, y_train, X_val, y_val, scaler_y, forecast_window, model_type, alpha=None):
+def train_and_evaluate_linear_model(X_train, y_train, X_val, y_val, scaler_y, forecast_window):
     X_train_flat = X_train.reshape(X_train.shape[0], -1)
     X_val_flat = X_val.reshape(X_val.shape[0], -1)
 
-    if model_type == "Linear":
-        model = LinearRegression(fit_intercept=True)
-    elif model_type == "Ridge":
-        model = Ridge(alpha=alpha, fit_intercept=True)
-    elif model_type == "Lasso":
-        model = Lasso(alpha=alpha, fit_intercept=True, max_iter=5000)
-    else:
-        raise ValueError(f"Unknown model_type: {model_type}")
+    # Ordinary Least Squares Linear Regression
+    model = LinearRegression(fit_intercept=True)
 
     model.fit(X_train_flat, y_train)
     val_preds_scaled = model.predict(X_val_flat)
-    val_preds_unscaled = scaler_y.inverse_transform(val_preds_scaled.reshape(-1,1))
-    y_val_true_unscaled = scaler_y.inverse_transform(y_val.reshape(-1,1))
+    val_preds_unscaled = scaler_y.inverse_transform(val_preds_scaled.reshape(-1, 1))
+    y_val_true_unscaled = scaler_y.inverse_transform(y_val.reshape(-1, 1))
 
     r2 = EM.r2(y_val_true_unscaled, val_preds_unscaled)
     rmse = EM.rmse(y_val_true_unscaled, val_preds_unscaled)
@@ -72,8 +58,8 @@ def prepare_and_cache_data(df, selected_features, window_size, forecast_window, 
     scaled_data = MinMaxScaler().fit_transform(df[selected_features])
     X, y = processor.create_windowed_data(scaled_data, window_size, forecast_window)
     X_train, X_val, _, y_train, y_val, _ = processor.split_dataset(X, y)
-    y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1,1))
-    y_val_scaled = scaler_y.transform(y_val.reshape(-1,1))
+    y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
+    y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
 
     np.save(paths["X_train"], X_train)
     np.save(paths["X_val"], X_val)
@@ -82,38 +68,6 @@ def prepare_and_cache_data(df, selected_features, window_size, forecast_window, 
     np.save(paths["scaler"], scaler_y, allow_pickle=True)
 
     return {**paths, "scaler_y": scaler_y}
-
-# -------------------------------
-# Optuna Objective
-# -------------------------------
-def objective_linear(trial, cached_data, selected_indicators, ticker, window_size, forecast_window):
-    X_train = np.load(cached_data["X_train"])
-    X_val = np.load(cached_data["X_val"])
-    y_train_scaled = np.load(cached_data["y_train"])
-    y_val_scaled = np.load(cached_data["y_val"])
-    scaler_y = cached_data["scaler_y"]
-
-    # Choose model type
-    model_type = trial.suggest_categorical("model_type", ["Linear", "Ridge", "Lasso"])
-    alpha = None
-    if model_type in ["Ridge", "Lasso"]:
-        alpha = trial.suggest_loguniform("alpha", 1e-4, 10.0)
-
-    rmse, mape, r2, acc, profit_index = train_and_evaluate_linear_model(
-        X_train, y_train_scaled, X_val, y_val_scaled,
-        scaler_y, forecast_window, model_type, alpha
-    )
-
-    with open(f'stock_results/{ticker}_LinearModels_results.csv', 'a', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            trial.number, ', '.join(selected_indicators),
-            window_size, forecast_window,
-            model_type, alpha,
-            rmse, mape, r2, acc, profit_index
-        ])
-
-    return -rmse
 
 # -------------------------------
 # Main Execution
@@ -127,8 +81,7 @@ if __name__ == '__main__':
         with open(result_file, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([
-                "Trial", "Indicators", "Window Size", "Forecast Window",
-                "Model Type", "Alpha",
+                "Indicators", "Window Size", "Forecast Window",
                 "RMSE", "MAPE", "R2", "Accuracy", "Profit Index"
             ])
 
@@ -151,14 +104,23 @@ if __name__ == '__main__':
                 w, f, ticker
             )
 
-            study = optuna.create_study(direction='maximize')
-            study.optimize(
-                partial(objective_linear, cached_data=cached_data,
-                        selected_indicators=indicator_combo,
-                        ticker=ticker, window_size=w, forecast_window=f),
-                n_trials=25
+            X_train = np.load(cached_data["X_train"])
+            X_val = np.load(cached_data["X_val"])
+            y_train_scaled = np.load(cached_data["y_train"])
+            y_val_scaled = np.load(cached_data["y_val"])
+            scaler_y = cached_data["scaler_y"]
+
+            rmse, mape, r2, acc, profit_index = train_and_evaluate_linear_model(
+                X_train, y_train_scaled, X_val, y_val_scaled,
+                scaler_y, f
             )
 
-            print(f"  -> Best score: {study.best_trial.value:.4f}")
+            with open(result_file, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    ', '.join(indicator_combo),
+                    w, f,
+                    rmse, mape, r2, acc, profit_index
+                ])
 
     record_best_models(result_file)
