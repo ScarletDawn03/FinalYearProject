@@ -206,7 +206,7 @@ def objective(trial, cached_data, selected_indicators, ticker, window_size, fore
 # Main Execution
 # -------------------------------
 if __name__ == "__main__":
-    ticker = 'QCOM'
+    ticker = 'BK'
     os.makedirs('stock_results', exist_ok=True)
     if not os.path.exists(f'stock_results/{ticker}_LSTM_results.csv'):
         with open(f'stock_results/{ticker}_LSTM_results.csv', 'w', newline='') as f:
@@ -225,7 +225,7 @@ if __name__ == "__main__":
     all_combinations = list(combinations(selected_base_indicators, 6))
     window_forecast_combos = [(5, 1)]
 
-    start_combo_index = 203 # Change to your desired start index
+    start_combo_index = 205 # Change to your desired start index
     start_config_index = 0 # 0: (60,1), 1: (60,30)
 
     for i, indicator_combo in enumerate(all_combinations):
