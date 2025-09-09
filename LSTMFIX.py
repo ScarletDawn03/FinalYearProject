@@ -225,7 +225,7 @@ if __name__ == "__main__":
     all_combinations = list(combinations(selected_base_indicators, 6))
     window_forecast_combos = [(5, 1)]
 
-    start_combo_index = 205 # Change to your desired start index
+    start_combo_index = 210 # Change to your desired start index
     start_config_index = 0 # 0: (60,1), 1: (60,30)
 
     for i, indicator_combo in enumerate(all_combinations):
