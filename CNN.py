@@ -61,24 +61,9 @@ class CNNModel(nn.Module):
         return self.fc(x)
 
 # -------------------------------
-# Data caching
+# Data preparation (no cache)
 # -------------------------------
-def prepare_and_cache_data(df, selected_features, window_size, forecast_window, ticker):
-    cache_dir = f"cache/{ticker}_w{window_size}_f{forecast_window}"
-    os.makedirs(cache_dir, exist_ok=True)
-
-    paths = {
-        "X_train": f"{cache_dir}/X_train.npy",
-        "X_val": f"{cache_dir}/X_val.npy",
-        "y_train": f"{cache_dir}/y_train.npy",
-        "y_val": f"{cache_dir}/y_val.npy",
-        "scaler": f"{cache_dir}/scaler.npy"
-    }
-
-    if all(os.path.exists(p) for p in paths.values()):
-        scaler_y = np.load(paths["scaler"], allow_pickle=True).item()
-        return {**paths, "scaler_y": scaler_y}
-
+def prepare_data(df, selected_features, window_size, forecast_window, ticker):
     processor = DataPreprocessing(ticker=ticker)
     scaler = MinMaxScaler()
     scaled_data = scaler.fit_transform(df[selected_features])
@@ -90,13 +75,13 @@ def prepare_and_cache_data(df, selected_features, window_size, forecast_window, 
     y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
     y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
 
-    np.save(paths["X_train"], X_train)
-    np.save(paths["X_val"], X_val)
-    np.save(paths["y_train"], y_train_scaled)
-    np.save(paths["y_val"], y_val_scaled)
-    np.save(paths["scaler"], scaler_y, allow_pickle=True)
-
-    return {**paths, "scaler_y": scaler_y}
+    return {
+        "X_train": X_train,
+        "X_val": X_val,
+        "y_train": y_train_scaled,
+        "y_val": y_val_scaled,
+        "scaler_y": scaler_y
+    }
 
 # -------------------------------
 # Training & evaluation
@@ -150,12 +135,12 @@ def train_and_evaluate_model(model, train_loader, val_data, optimizer, criterion
 # -------------------------------
 # Optuna objective
 # -------------------------------
-def objective(trial, cached_data, selected_indicators, ticker, window_size, forecast_window):
-    X_train = np.load(cached_data["X_train"])
-    X_val = np.load(cached_data["X_val"])
-    y_train_scaled = np.load(cached_data["y_train"])
-    y_val_scaled = np.load(cached_data["y_val"])
-    scaler_y = cached_data["scaler_y"]
+def objective(trial, data, selected_indicators, ticker, window_size, forecast_window):
+    X_train = data["X_train"]
+    X_val = data["X_val"]
+    y_train_scaled = data["y_train"]
+    y_val_scaled = data["y_val"]
+    scaler_y = data["scaler_y"]
 
     hyperparams = {
         "filters": trial.suggest_categorical("filters", [32, 64, 128]),
@@ -226,12 +211,12 @@ if __name__ == "__main__":
 
     selected_base_indicators = ['20MA', '50MA', 'RSI', 'MACD', 'Upper_BB', 'Lower_BB', 'CCI', 'ATR', 'Williams_%R', 'OBV']
     all_combinations = list(combinations(selected_base_indicators, 6))
-    window_forecast_combos = [(5, 1)] #[(60, 1), (60, 30)]
+    window_forecast_combos = [(5, 1)]  # [(60, 1), (60, 30)]
 
     for i, indicator_combo in enumerate(all_combinations):
         for j, (window_size, forecast_window) in enumerate(window_forecast_combos):
             print(f"\n=== [{i+1}/{len(all_combinations)}] Combo: {indicator_combo}, (w={window_size}, f={forecast_window}) ===")
-            cached_data = prepare_and_cache_data(
+            data = prepare_data(
                 df_with_all_indicators,
                 ['Close'] + list(indicator_combo),
                 window_size,
@@ -239,9 +224,9 @@ if __name__ == "__main__":
                 ticker
             )
 
-            study = optuna.create_study(direction='maximize')  # No pruning
+            study = optuna.create_study(direction='maximize')
             study.optimize(
-                partial(objective, cached_data=cached_data, selected_indicators=indicator_combo,
+                partial(objective, data=data, selected_indicators=indicator_combo,
                         ticker=ticker, window_size=window_size, forecast_window=forecast_window),
                 n_trials=25
             )
