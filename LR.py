@@ -29,7 +29,7 @@ def train_and_evaluate_linear_model(X_train, y_train, X_val, y_val, scaler_y, fo
     acc = EM.accuracy(y_val_true_unscaled, val_preds_unscaled)
     profit_index = EM.profitability_index(y_val_true_unscaled, val_preds_unscaled, forecast_window)
 
-    return rmse, mape, r2, acc, profit_index
+    return rmse, mape, r2, acc, profit_index, model
 
 
 # -------------------------------
@@ -45,36 +45,44 @@ def prepare_and_cache_data(df, selected_features, window_size, forecast_window, 
         "X_val": os.path.join(cache_dir, "X_val.npy"),
         "y_train": os.path.join(cache_dir, "y_train.npy"),
         "y_val": os.path.join(cache_dir, "y_val.npy"),
-        "scaler": os.path.join(cache_dir, "scaler_params.npy")
+        "y_train_raw": os.path.join(cache_dir, "y_train_raw.npy"),
+        "y_val_raw": os.path.join(cache_dir, "y_val_raw.npy"),
+        "scaler_X": os.path.join(cache_dir, "scaler_X_params.npy"),
+        "scaler_y": os.path.join(cache_dir, "scaler_y_params.npy"),
     }
 
     # ---------------- Load cache if exists ----------------
     if all(os.path.exists(p) for p in paths.values()):
         print(f"✅ Loaded cached dataset for (w={window_size}, f={forecast_window})")
 
-        params = np.load(paths["scaler"], allow_pickle=True).item()
+        # Restore scalers
+        params_y = np.load(paths["scaler_y"], allow_pickle=True).item()
         scaler_y = MinMaxScaler()
-        scaler_y.min_ = params["min"]
-        scaler_y.scale_ = params["scale"]
-        scaler_y.data_min_ = params["data_min"]
-        scaler_y.data_max_ = params["data_max"]
-        scaler_y.data_range_ = params["data_range"]
+        scaler_y.min_ = params_y["min"]
+        scaler_y.scale_ = params_y["scale"]
+        scaler_y.data_min_ = params_y["data_min"]
+        scaler_y.data_max_ = params_y["data_max"]
+        scaler_y.data_range_ = params_y["data_range"]
 
         return {**paths, "scaler_y": scaler_y}
 
     # ---------------- Otherwise generate dataset ----------------
     print(f"⚙️ Generating dataset for (w={window_size}, f={forecast_window})...")
     processor = DataPreprocessing(df=df)
-    scaler_y = MinMaxScaler()
-
-    # Scale selected features
-    scaled_data = MinMaxScaler().fit_transform(df[selected_features])
 
     # Windowing + split
-    X, y = processor.create_windowed_data(scaled_data, window_size, forecast_window)
+    X, y = processor.create_windowed_data(df[selected_features].values, window_size, forecast_window)
     X_train, X_val, _, y_train, y_val, _ = processor.split_dataset(X, y)
 
-    # Scale target separately
+    # Feature scaling (fit only on train)
+    scaler_X = MinMaxScaler()
+    X_train_scaled = scaler_X.fit_transform(X_train.reshape(X_train.shape[0], -1))
+    X_val_scaled = scaler_X.transform(X_val.reshape(X_val.shape[0], -1))
+    X_train = X_train_scaled.reshape(X_train.shape)
+    X_val = X_val_scaled.reshape(X_val.shape)
+
+    # Target scaling
+    scaler_y = MinMaxScaler()
     y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
     y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
 
@@ -83,16 +91,27 @@ def prepare_and_cache_data(df, selected_features, window_size, forecast_window, 
     np.save(paths["X_val"], X_val)
     np.save(paths["y_train"], y_train_scaled)
     np.save(paths["y_val"], y_val_scaled)
+    np.save(paths["y_train_raw"], y_train)
+    np.save(paths["y_val_raw"], y_val)
 
-    # Save scaler params
-    scaler_params = {
+    # Save scalers
+    scaler_y_params = {
         "min": scaler_y.min_,
         "scale": scaler_y.scale_,
         "data_min": scaler_y.data_min_,
         "data_max": scaler_y.data_max_,
         "data_range": scaler_y.data_range_
     }
-    np.save(paths["scaler"], scaler_params, allow_pickle=True)
+    np.save(paths["scaler_y"], scaler_y_params, allow_pickle=True)
+
+    scaler_X_params = {
+        "min": scaler_X.min_,
+        "scale": scaler_X.scale_,
+        "data_min": scaler_X.data_min_,
+        "data_max": scaler_X.data_max_,
+        "data_range": scaler_X.data_range_
+    }
+    np.save(paths["scaler_X"], scaler_X_params, allow_pickle=True)
 
     return {**paths, "scaler_y": scaler_y}
 
@@ -101,7 +120,7 @@ def prepare_and_cache_data(df, selected_features, window_size, forecast_window, 
 # Main Execution
 # -------------------------------
 if __name__ == '__main__':
-    ticker = '5258.KL'
+    ticker = 'AAPL'
     os.makedirs('stock_results', exist_ok=True)
 
     result_file = f'stock_results/{ticker}_LR_results.csv'
@@ -110,7 +129,8 @@ if __name__ == '__main__':
             writer = csv.writer(f)
             writer.writerow([
                 "Indicators", "Window Size", "Forecast Window",
-                "RMSE", "MAPE", "R2", "Accuracy", "Profit Index"
+                "RMSE", "MAPE", "R2", "Accuracy", "Profit Index",
+                "Intercept", "Coefficients"
             ])
 
     processor = DataPreprocessing(ticker=ticker)
@@ -138,18 +158,22 @@ if __name__ == '__main__':
             y_val_scaled = np.load(cached_data["y_val"])
             scaler_y = cached_data["scaler_y"]
 
-            rmse, mape, r2, acc, profit_index = train_and_evaluate_linear_model(
+            rmse, mape, r2, acc, profit_index, model = train_and_evaluate_linear_model(
                 X_train, y_train_scaled, X_val, y_val_scaled,
                 scaler_y, forecast_window
             )
+
+            # Log model coefficients
+            intercept = float(model.intercept_)
+            coefficients = ", ".join([f"{coef:.6f}" for coef in model.coef_.flatten()])
 
             with open(result_file, 'a', newline='') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerow([
                     ', '.join(indicator_combo),
                     w, forecast_window,
-                    float(rmse), float(mape), float(r2), float(acc), float(profit_index)
+                    float(rmse), float(mape), float(r2), float(acc), float(profit_index),
+                    intercept, coefficients
                 ])
-
 
     record_best_models(result_file)

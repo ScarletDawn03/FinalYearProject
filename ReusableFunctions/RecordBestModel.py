@@ -34,7 +34,7 @@ def record_best_models(input_csv_path, output_dir="best_results"):
         result_df = result_df[columns]
 
         ticker_symbol = os.path.basename(input_csv_path).split("_")[0]
-        output_path = os.path.join(output_dir, f"{ticker_symbol}_LSTM_best.csv")
+        output_path = os.path.join(output_dir, f"{ticker_symbol}_LR_best.csv")
         result_df.to_csv(output_path, index=False)
         print(f"✅ Best models saved to: {output_path}")
     else:
