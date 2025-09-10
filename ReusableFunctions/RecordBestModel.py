@@ -5,9 +5,15 @@ def record_best_models(input_csv_path, output_dir="best_results"):
     os.makedirs(output_dir, exist_ok=True)
     df = pd.read_csv(input_csv_path)
 
+    # Exclude negative R2
+    df = df[df["R2"] >= 0]
+
+    if df.empty:
+        print("⚠️ No valid records found (all R² < 0).")
+        return
+
     # Get original column order to preserve header structure
     columns = df.columns.tolist()
-
     best_models = []
 
     for forecast_horizon in [1, 30]:
@@ -15,20 +21,18 @@ def record_best_models(input_csv_path, output_dir="best_results"):
         if df_fh.empty:
             continue
 
-        # Find max accuracy
-        max_acc = df_fh["Accuracy"].max()
-        top_acc_df = df_fh[df_fh["Accuracy"] == max_acc]
+        # Sort: first by Accuracy (descending), then by Profit Index (descending)
+        df_sorted = df_fh.sort_values(
+            by=["Accuracy", "Profit Index"],
+            ascending=[False, False]
+        )
 
-        # Break tie using profitability index
-        if len(top_acc_df) > 1:
-            best_row = top_acc_df.loc[top_acc_df["Profit Index"].idxmax()]
-        else:
-            best_row = top_acc_df.iloc[0]
-
-        best_models.append(best_row)
+        # Take top 5
+        top5 = df_sorted.head(5)
+        best_models.append(top5)
 
     if best_models:
-        result_df = pd.DataFrame(best_models)
+        result_df = pd.concat(best_models, ignore_index=True)
 
         # Ensure consistent column ordering
         result_df = result_df[columns]
@@ -36,6 +40,6 @@ def record_best_models(input_csv_path, output_dir="best_results"):
         ticker_symbol = os.path.basename(input_csv_path).split("_")[0]
         output_path = os.path.join(output_dir, f"{ticker_symbol}_LR_best.csv")
         result_df.to_csv(output_path, index=False)
-        print(f"✅ Best models saved to: {output_path}")
+        print(f"✅ Top 5 best models (per forecast window) saved to: {output_path}")
     else:
         print("⚠️ No best models found (check if forecast horizon 1/30 exists in the file).")
