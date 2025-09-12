@@ -191,7 +191,7 @@ def objective(trial, data, selected_indicators, ticker, window_size, forecast_wi
 # Main Execution
 # -------------------------------
 if __name__ == "__main__":
-    ticker = 'QCOM'
+    ticker = '0097.KL'
     os.makedirs('stock_results', exist_ok=True)
     if not os.path.exists(f'stock_results/{ticker}_LSTM_results.csv'):
         with open(f'stock_results/{ticker}_LSTM_results.csv', 'w', newline='') as f:
