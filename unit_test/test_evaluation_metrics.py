@@ -3,15 +3,22 @@ import pytest
 
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../ReusableFunctions")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from EvaluationMetrics import EvaluationMetrics 
+from ReusableFunctions.EvaluationMetrics import EvaluationMetrics 
 
 def test_rmse():
     y_true = np.array([3, -0.5, 2, 7])
     y_pred = np.array([2.5, 0.0, 2, 8])
     result = EvaluationMetrics.rmse(y_true, y_pred)
     expected = np.sqrt(np.mean((y_true - y_pred) ** 2))
+    assert np.isclose(result, expected)
+
+def test_mae():
+    y_true = np.array([3, -0.5, 2, 7])
+    y_pred = np.array([2.5, 0.0, 2, 8])
+    result = EvaluationMetrics.mae(y_true, y_pred)
+    expected = np.mean(np.abs(y_true - y_pred))
     assert np.isclose(result, expected)
 
 def test_mape():

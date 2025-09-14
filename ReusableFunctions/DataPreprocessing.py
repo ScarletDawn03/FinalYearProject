@@ -92,7 +92,7 @@ class DataPreprocessing:
         loss = (-delta.where(delta < 0, 0)).rolling(window=14, min_periods=1).mean() #Sum of negative values over 14 days
         rs = gain / loss #Calculate the relative strength
         self.df['RSI'] = 100 - (100 / (1 + rs)) #>70 overbought, <30 oversold
-        self.df['RSI'].fillna(50, inplace=True)
+        self.df['RSI'] = self.df['RSI'].fillna(50)
 
         # MACD and Signal Line
         self.df['12EMA'] = self.df['Close'].ewm(span=12, adjust=False, min_periods=1).mean() #EMA=Soothing Factor x Price + (1-Soothing Factor) x Previous EMA
@@ -167,21 +167,3 @@ class DataPreprocessing:
             y[:train_end], y[train_end:val_end], y[val_end:]
         )
     
-    def split_train_test_80_20(self, X: np.ndarray, y: np.ndarray):
-        """
-        Splits the dataset into 80% training and 20% testing sets.
-        
-        Args:
-            X (np.ndarray): Input features.
-            y (np.ndarray): Target values.
-        
-        Returns:
-            Tuple: X_train, X_test, y_train, y_test
-        """
-        total_samples = len(X)
-        split_index = int(total_samples * 0.8)
-        
-        return (
-            X[:split_index], X[split_index:],
-            y[:split_index], y[split_index:]
-        )
