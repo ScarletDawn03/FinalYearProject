@@ -28,7 +28,9 @@ if torch.cuda.is_available():
 else:
     print("Running on CPU")
 
-# Optuna logging
+# -------------------------------
+# Optuna Logging
+# -------------------------------
 optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -129,6 +131,8 @@ def train_and_evaluate_model(model, train_loader, val_data, optimizer, criterion
         EM.accuracy(y_val_true_unscaled, val_preds_unscaled)
     )
     profit_index = EM.profitability_index(y_val_true_unscaled, val_preds_unscaled, forecast_window)
+
+    del X_val_tensor, y_val_tensor
     torch.cuda.empty_cache()
     return rmse, mape, r2, acc, profit_index
 
@@ -156,7 +160,8 @@ def objective(trial, data, selected_indicators, ticker, window_size, forecast_wi
     train_loader = DataLoader(
         TensorDataset(torch.tensor(X_train, dtype=torch.float32).permute(0, 2, 1),
                       torch.tensor(y_train_scaled, dtype=torch.float32)),
-        batch_size=hyperparams["batch_size"], shuffle=False
+        batch_size=hyperparams["batch_size"], 
+        shuffle=False
     )
 
     model = CNNModel(
@@ -176,11 +181,13 @@ def objective(trial, data, selected_indicators, ticker, window_size, forecast_wi
         scaler_y, forecast_window, hyperparams["epochs"]
     )
 
+    # Log results
     with open(f'stock_results/{ticker}_CNN_results.csv', 'a', newline='') as f:
         writer = csv.writer(f)
         writer.writerow([
             trial.number, ', '.join(selected_indicators),
-            hyperparams["filters"], hyperparams["kernel_size"], hyperparams["pooling_size"], hyperparams["dropout"],
+            hyperparams["filters"], hyperparams["kernel_size"], hyperparams["pooling_size"], 
+            hyperparams["dropout"],
             hyperparams["lr"], hyperparams["batch_size"],
             window_size, forecast_window, hyperparams["epochs"],
             hyperparams["activation"],
@@ -193,7 +200,7 @@ def objective(trial, data, selected_indicators, ticker, window_size, forecast_wi
 # Main execution
 # -------------------------------
 if __name__ == "__main__":
-    ticker = '5258.KL'
+    ticker = 'AAPL'
     os.makedirs('stock_results', exist_ok=True)
     if not os.path.exists(f'stock_results/{ticker}_CNN_results.csv'):
         with open(f'stock_results/{ticker}_CNN_results.csv', 'w', newline='') as f:
@@ -226,8 +233,12 @@ if __name__ == "__main__":
 
             study = optuna.create_study(direction='maximize')
             study.optimize(
-                partial(objective, data=data, selected_indicators=indicator_combo,
-                        ticker=ticker, window_size=window_size, forecast_window=forecast_window),
+                partial(objective,
+                        data=data, 
+                        selected_indicators=indicator_combo,
+                        ticker=ticker, 
+                        window_size=window_size, 
+                        forecast_window=forecast_window),
                 n_trials=25
             )
 

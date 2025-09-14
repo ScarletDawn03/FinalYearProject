@@ -25,6 +25,8 @@ set_global_seed(seed=42, framework='torch')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if torch.cuda.is_available():
     print("GPU Name:", torch.cuda.get_device_name(0))
+else:
+    print("Running on CPU")
 
 # -------------------------------
 # Optuna Logging
@@ -58,9 +60,7 @@ class LSTMModel(nn.Module):
 # Dataset Preparation (No Cache)
 # -------------------------------
 def prepare_data(df, selected_features, window_size, forecast_window, ticker):
-    print(f"⚙️ Generating dataset for {ticker} (w={window_size}, f={forecast_window})...")
     processor = DataPreprocessing(ticker=ticker)
-
     scaler = MinMaxScaler()
     scaled_data = scaler.fit_transform(df[selected_features])
 
@@ -191,7 +191,7 @@ def objective(trial, data, selected_indicators, ticker, window_size, forecast_wi
 # Main Execution
 # -------------------------------
 if __name__ == "__main__":
-    ticker = 'QCOM'
+    ticker = 'BK'
     os.makedirs('stock_results', exist_ok=True)
     if not os.path.exists(f'stock_results/{ticker}_LSTM_results.csv'):
         with open(f'stock_results/{ticker}_LSTM_results.csv', 'w', newline='') as f:
@@ -204,16 +204,16 @@ if __name__ == "__main__":
 
     data_processor = DataPreprocessing(ticker)
     df_with_all_indicators = data_processor.add_technical_indicators()
+    os.makedirs('check', exist_ok=True)
+    df_with_all_indicators.to_csv(f'check/{ticker}_LSTM_downloaded_data.csv', index=True)
 
-    selected_base_indicators = ['20MA', '50MA', 'RSI', 'MACD', 'Upper_BB',
-                                'Lower_BB', 'CCI', 'ATR', 'Williams_%R', 'OBV']
+    selected_base_indicators = ['20MA', '50MA', 'RSI', 'MACD', 'Upper_BB','Lower_BB', 'CCI', 'ATR', 'Williams_%R', 'OBV']
     all_combinations = list(combinations(selected_base_indicators, 6))
     window_forecast_combos = [(5, 1)]
 
     for i, indicator_combo in enumerate(all_combinations):
         for j, (window_size, forecast_window) in enumerate(window_forecast_combos):
             print(f"\n=== [{i+1}/{len(all_combinations)}] Combo: {indicator_combo}, (w={window_size}, f={forecast_window}) ===")
-            
             data = prepare_data(
                 df_with_all_indicators,
                 ['Close'] + list(indicator_combo),
