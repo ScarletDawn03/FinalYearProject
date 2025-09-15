@@ -25,6 +25,8 @@ set_global_seed(seed=42, framework='torch')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if torch.cuda.is_available():
     print("GPU Name:", torch.cuda.get_device_name(0))
+else:
+    print("Running on CPU")
 
 # -------------------------------
 # Optuna Logging
@@ -36,7 +38,7 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 # LSTM Model
 # -------------------------------
 class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, dropout, activation):
+    def __init__(self, input_size, hidden_size, num_layers, dropout, activation=None):
         super().__init__()
         self.lstm = nn.LSTM(
             input_size=input_size,
@@ -45,36 +47,17 @@ class LSTMModel(nn.Module):
             batch_first=True,
             dropout=dropout if num_layers > 1 else 0
         )
-        activation_map = {"relu": nn.ReLU, "tanh": nn.Tanh, "sigmoid": nn.Sigmoid}
-        self.act = activation_map[activation]()
         self.fc = nn.Linear(hidden_size, 1)
 
     def forward(self, x):
         out, _ = self.lstm(x)
-        out = self.act(out[:, -1, :])
+        out = out[:, -1, :]   # take last hidden state
         return self.fc(out)
 
 # -------------------------------
-# Dataset Caching
+# Dataset Preparation (No Cache)
 # -------------------------------
-def prepare_and_cache_data(df, selected_features, window_size, forecast_window, ticker):
-    cache_dir = f"cache/{ticker}_w{window_size}_f{forecast_window}"
-    os.makedirs(cache_dir, exist_ok=True)
-
-    paths = {
-        "X_train": f"{cache_dir}/X_train.npy",
-        "X_val": f"{cache_dir}/X_val.npy",
-        "y_train": f"{cache_dir}/y_train.npy",
-        "y_val": f"{cache_dir}/y_val.npy",
-        "scaler": f"{cache_dir}/scaler.npy"
-    }
-
-    if all(os.path.exists(p) for p in paths.values()):
-        scaler_y = np.load(paths["scaler"], allow_pickle=True).item()
-        print(f"✅ Loaded cached data for (w={window_size}, f={forecast_window})")
-        return {**paths, "scaler_y": scaler_y}
-
-    print(f"⚙️ Generating dataset for (w={window_size}, f={forecast_window})...")
+def prepare_data(df, selected_features, window_size, forecast_window, ticker):
     processor = DataPreprocessing(ticker=ticker)
     scaler = MinMaxScaler()
     scaled_data = scaler.fit_transform(df[selected_features])
@@ -86,13 +69,13 @@ def prepare_and_cache_data(df, selected_features, window_size, forecast_window, 
     y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
     y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
 
-    np.save(paths["X_train"], X_train)
-    np.save(paths["X_val"], X_val)
-    np.save(paths["y_train"], y_train_scaled)
-    np.save(paths["y_val"], y_val_scaled)
-    np.save(paths["scaler"], scaler_y, allow_pickle=True)
-
-    return {**paths, "scaler_y": scaler_y}
+    return {
+        "X_train": X_train,
+        "X_val": X_val,
+        "y_train": y_train_scaled,
+        "y_val": y_val_scaled,
+        "scaler_y": scaler_y
+    }
 
 # -------------------------------
 # Training + Evaluation
@@ -149,19 +132,18 @@ def train_and_evaluate_model(model, train_loader, val_data, optimizer, criterion
 # -------------------------------
 # Optuna Objective
 # -------------------------------
-def objective(trial, cached_data, selected_indicators, ticker, window_size, forecast_window):
-    X_train = np.load(cached_data["X_train"])
-    X_val = np.load(cached_data["X_val"])
-    y_train_scaled = np.load(cached_data["y_train"])
-    y_val_scaled = np.load(cached_data["y_val"])
-    scaler_y = cached_data["scaler_y"]
+def objective(trial, data, selected_indicators, ticker, window_size, forecast_window):
+    X_train = data["X_train"]
+    X_val = data["X_val"]
+    y_train_scaled = data["y_train"]
+    y_val_scaled = data["y_val"]
+    scaler_y = data["scaler_y"]
 
     hyperparams = {
         "hidden_size": trial.suggest_categorical("hidden_size", [32, 64, 128]),
         "dropout": trial.suggest_float("dropout", 0.2, 0.8, step=0.1),
         "lr": trial.suggest_categorical("lr", [0.0001, 0.0005, 0.001]),
         "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64]),
-        "activation": trial.suggest_categorical("activation", ["relu", "tanh", "sigmoid"]),
         "epochs": trial.suggest_categorical("epochs", [50, 100, 150])
     }
 
@@ -177,7 +159,6 @@ def objective(trial, cached_data, selected_indicators, ticker, window_size, fore
         hidden_size=hyperparams["hidden_size"],
         num_layers=1,
         dropout=hyperparams["dropout"],
-        activation=hyperparams["activation"]
     ).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=hyperparams["lr"])
@@ -196,7 +177,6 @@ def objective(trial, cached_data, selected_indicators, ticker, window_size, fore
             hyperparams["hidden_size"], hyperparams["dropout"],
             hyperparams["lr"], hyperparams["batch_size"],
             window_size, forecast_window, hyperparams["epochs"],
-            hyperparams["activation"],
             rmse, mape, r2, acc, profit_index
         ])
 
@@ -213,20 +193,22 @@ if __name__ == "__main__":
             writer = csv.writer(f)
             writer.writerow([
                 "Trial", "Indicators", "Hidden Size", "Dropout", "LR", "Batch Size",
-                "Window Size", "Forecast Window", "Epochs", "Activation",
+                "Window Size", "Forecast Window", "Epochs",
                 "RMSE", "MAPE", "R2", "Accuracy", "Profit Index"
             ])
 
     data_processor = DataPreprocessing(ticker)
     df_with_all_indicators = data_processor.add_technical_indicators()
+    os.makedirs('check', exist_ok=True)
+    df_with_all_indicators.to_csv(f'check/{ticker}_LSTM_downloaded_data.csv', index=True)
 
-    selected_base_indicators = ['20MA', '50MA', 'RSI', 'MACD', 'Upper_BB',
-                                'Lower_BB', 'CCI', 'ATR', 'Williams_%R', 'OBV']
+    selected_base_indicators = ['20MA', '50MA', 'RSI', 'MACD', 'Upper_BB','Lower_BB', 'CCI', 'ATR', 'Williams_%R', 'OBV']
     all_combinations = list(combinations(selected_base_indicators, 6))
     window_forecast_combos = [(5, 1)]
 
-    start_combo_index = 210 # Change to your desired start index
-    start_config_index = 0 # 0: (60,1), 1: (60,30)
+    start_combo_index = 147 # Change to your desired start index
+    start_config_index = 0 
+
 
     for i, indicator_combo in enumerate(all_combinations):
 
@@ -234,13 +216,12 @@ if __name__ == "__main__":
             continue
 
         for j, (window_size, forecast_window) in enumerate(window_forecast_combos):
+
             if i == start_combo_index and j < start_config_index:
                 continue
-
-
+             
             print(f"\n=== [{i+1}/{len(all_combinations)}] Combo: {indicator_combo}, (w={window_size}, f={forecast_window}) ===")
-            
-            cached_data = prepare_and_cache_data(
+            data = prepare_data(
                 df_with_all_indicators,
                 ['Close'] + list(indicator_combo),
                 window_size,
@@ -252,7 +233,7 @@ if __name__ == "__main__":
             study = optuna.create_study(direction='maximize')
             study.optimize(
                 partial(objective,
-                        cached_data=cached_data,
+                        data=data,
                         selected_indicators=indicator_combo,
                         ticker=ticker,
                         window_size=window_size,
