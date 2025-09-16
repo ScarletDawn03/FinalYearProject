@@ -54,49 +54,10 @@ def train_and_evaluate_linear_model(X_train, y_train, X_val, y_val, scaler_y, fo
     return  val_r2, val_acc, val_profit_index
 
 # -------------------------------
-# Dataset Preparation 
-# -------------------------------
-def prepare_data(df, selected_features, window_size, forecast_window, ticker):
-    processor = DataPreprocessing(ticker=ticker)
-
-    # Create windowed features and labels
-    X, y = processor.create_windowed_data(
-        df[selected_features].values,
-        window_size,
-        forecast_window
-    )
-
-    # Split BEFORE scaling
-    X_train, X_val, _, y_train, y_val, _ = processor.split_dataset(X, y)
-
-    # Scale features (fit on train, transform on val)
-    scaler_X = MinMaxScaler()
-    X_train_flat = X_train.reshape(X_train.shape[0], -1)
-    X_val_flat = X_val.reshape(X_val.shape[0], -1)
-
-    X_train_scaled = scaler_X.fit_transform(X_train_flat).reshape(X_train.shape)
-    X_val_scaled = scaler_X.transform(X_val_flat).reshape(X_val.shape)
-
-    # Scale targets (fit on train, transform on val)
-    scaler_y = MinMaxScaler()
-    y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
-    y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
-
-    return {
-        "X_train": X_train_scaled,
-        "X_val": X_val_scaled,
-        "y_train": y_train_scaled,
-        "y_val": y_val_scaled,
-        "y_train_raw": y_train,
-        "y_val_raw": y_val,
-        "scaler_y": scaler_y
-    }
-
-# -------------------------------
 # Main Execution
 # -------------------------------
 if __name__ == '__main__':
-    ticker = '5258.KL'
+    ticker = 'AAPL'
     os.makedirs('stock_results', exist_ok=True)
 
     result_file = f'stock_results/{ticker}_LR_results.csv'
@@ -108,8 +69,8 @@ if __name__ == '__main__':
                 "R2", "Accuracy", "Profit Index"
             ])
 
-    processor = DataPreprocessing(ticker=ticker)
-    df_with_all_indicators = processor.add_technical_indicators()
+    data_processor = DataPreprocessing(ticker=ticker)
+    df_with_all_indicators = data_processor.add_technical_indicators()
 
     os.makedirs('check', exist_ok=True)
     df_with_all_indicators.to_csv(f'check/{ticker}_LR_downloaded_data.csv', index=True)
@@ -122,12 +83,10 @@ if __name__ == '__main__':
         for j, (window_size, forecast_window) in enumerate(window_forecast_combos):
             print(f"\n=== [{i+1}/{len(all_combinations)}] Combo: {indicator_combo}, (w={window_size}, f={forecast_window}) ===")
 
-            data = prepare_data(
-                df_with_all_indicators,
+            data = data_processor.prepare_data(
                 ['Close'] + list(indicator_combo),
-                window_size,
-                forecast_window,
-                ticker
+                window_size=window_size,
+                forecast_window=forecast_window,
             )
 
             X_train = data["X_train"]

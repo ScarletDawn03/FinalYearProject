@@ -73,23 +73,6 @@ def test_split_dataset_shapes(dummy_stock_data):
     assert len(X_train) + len(X_val) + len(X_test) == total
     assert len(y_train) == len(X_train)
 
-# -------------------------
-# New tests
-# -------------------------
-
-def test_normalize_indicator_combinations(dummy_stock_data):
-    processor = DataPreprocessing(df=dummy_stock_data)
-    processor.df = processor.add_technical_indicators()
-    
-    indicators = ['20MA', '50MA', 'RSI', 'MACD', 'ATR', 'OBV', 'CCI']
-    all_scaled = processor.normalize_indicator_combinations(indicators)
-
-    # Number of combinations = C(7,5) = 21
-    assert len(all_scaled) == 21, f"Expected 21 combinations, got {len(all_scaled)}"
-
-    for combo, (data, scaler) in all_scaled.items():
-       assert data.min() >= -1e-8 and data.max() <= 1 + 1e-8, f"Scaled values for {combo} not in [0,1]"
-
 def test_indicator_value_ranges(dummy_stock_data):
     processor = DataPreprocessing(df=dummy_stock_data)
     df_indicators = processor.add_technical_indicators()
@@ -113,3 +96,23 @@ def test_forecast_window_greater_than_one(dummy_stock_data):
     assert X_fw5.shape[1:] == (10, len(selected)), "Incorrect X shape for forecast_window > 1"
     # y_fw5 should be shifted compared to y_fw1
     assert not np.array_equal(y_fw1[:len(y_fw5)], y_fw5), "y values for different forecast windows should differ"
+
+def test_prepare_data_returns_scaled_sets(dummy_stock_data):
+    processor = DataPreprocessing(df=dummy_stock_data)
+    processor.df = processor.add_technical_indicators()
+
+    selected = ['Close', '20MA', 'RSI']
+    result = processor.prepare_data(selected, window_size=10, forecast_window=1)
+
+    X_train, X_val = result["X_train"], result["X_val"]
+    y_train, y_val = result["y_train"], result["y_val"]
+
+    # Shapes match
+    assert X_train.shape[0] == y_train.shape[0]
+    assert X_val.shape[0] == y_val.shape[0]
+
+    # Training data should be in [0,1] within tolerance
+    assert np.all((X_train >= -1e-8) & (X_train <= 1 + 1e-8)), "X_train not scaled properly"
+    assert np.all((y_train >= -1e-8) & (y_train <= 1 + 1e-8)), "y_train not scaled properly"
+
+

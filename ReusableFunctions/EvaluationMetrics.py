@@ -8,7 +8,7 @@ class EvaluationMetrics:
 
     @staticmethod
     def mape(y_true, y_pred):
-        return mean_absolute_percentage_error(y_true, y_pred) * 100
+        return mean_absolute_percentage_error(y_true, y_pred) * 100 # Not used in this research but useful metric
 
     @staticmethod
     def r2(y_true, y_pred):
@@ -28,10 +28,6 @@ class EvaluationMetrics:
     
     @staticmethod
     def profitability_index(y_true, y_pred, forecast_window, initial_capital=10000.0):
-        """
-        Calculates the profitability index as Final Capital / Initial Capital based on a simple trading strategy.
-        - For forecast_window=n: Buy if predicted price at (i+n) > current price at i, sell otherwise.
-        """
         capital = initial_capital
         position = 0
         y_true = y_true.flatten()
@@ -39,7 +35,7 @@ class EvaluationMetrics:
 
         for i in range(len(y_pred) - forecast_window):
             current_price = y_true[i]
-            predicted_future_price = y_pred[i + forecast_window]
+            predicted_future_price = y_pred[i]
 
             if predicted_future_price > current_price and position == 0:
                 position = capital / current_price

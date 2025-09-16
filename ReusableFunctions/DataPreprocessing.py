@@ -6,16 +6,6 @@ from sklearn.preprocessing import MinMaxScaler
 
 class DataPreprocessing:
     def __init__(self, ticker=None, df=None, start_date='2014-01-01', end_date='2024-12-31'):
-        """
-        Initialize the TechnicalIndicators class with either a DataFrame or a ticker symbol.
-        
-        Args:
-        - ticker (str, optional): Ticker symbol for stock data (if df is not provided).
-        - df (pd.DataFrame, optional): Pre-loaded stock data (if provided, ticker is ignored).
-        - start_date (str): Start date for downloading stock data (if ticker is used).
-        - end_date (str): End date for downloading stock data (if ticker is used).
-        """
-
         self.analysis_start_date = '2015-01-01'
         if df is not None:
             self.df = df
@@ -26,17 +16,6 @@ class DataPreprocessing:
             raise ValueError("Either a ticker or a DataFrame must be provided.")
 
     def download_stock_data(self, ticker, start_date='2014-01-01', end_date='2024-12-31'):
-        """
-        Downloads stock data using yfinance for the given ticker and date range.
-        
-        Args:
-        - ticker (str): The stock ticker symbol.
-        - start_date (str): The start date for the stock data.
-        - end_date (str): The end date for the stock data.
-        
-        Returns:
-        - pd.DataFrame: Stock data for the specified ticker and date range.
-        """
         data = yf.download(ticker, start=start_date, end=end_date)
         return data
     
@@ -74,12 +53,6 @@ class DataPreprocessing:
         print(f"Removed {before - after} rows corresponding to ex-dividend and earnings dates.")
 
     def add_technical_indicators(self):
-        """
-        Adds common technical indicators to the stock data DataFrame.
-        
-        Returns:
-        - pd.DataFrame: The original DataFrame with added technical indicators.
-        """
         pd.options.mode.chained_assignment = None  # Disable warnings for chained assignments
 
         # Moving Averages
@@ -136,19 +109,8 @@ class DataPreprocessing:
         print("Null values in each column:\n", self.df.isnull().sum())
         print(f"Does the dataset contain any null values? {self.df.isnull().values.any()}")
 
-        
         # Return only rows from analysis start date forward
         return self.df.loc[self.analysis_start_date:]
-    
-    def normalize_indicator_combinations(self, all_indicators: list[str]):
-        indicator_combinations = list(combinations(all_indicators, 5)) 
-        all_scaled_data = {}
-        for selected_indicators in indicator_combinations:
-            selected_features = ['Close'] + list(selected_indicators)
-            scaler = MinMaxScaler()
-            scaled_data = scaler.fit_transform(self.df[selected_features])
-            all_scaled_data[selected_indicators] = (scaled_data, scaler)
-        return all_scaled_data
 
     def create_windowed_data(self, scaled_data, window_size: int = 50, forecast_window: int = 1):
         X, y = [], []
@@ -166,4 +128,41 @@ class DataPreprocessing:
             X[:train_end], X[train_end:val_end], X[val_end:],
             y[:train_end], y[train_end:val_end], y[val_end:]
         )
+    
+    #Only for train+val; test not included
+    def prepare_data(self, selected_features, window_size, forecast_window):
+
+        # Create windowed features and labels
+        X, y = self.create_windowed_data(
+            self.df[selected_features].values,
+            window_size,
+            forecast_window
+        )
+
+        # Split BEFORE scaling
+        X_train, X_val, _, y_train, y_val, _ = self.split_dataset(X, y)
+
+        # Feature scaling (fit on train, transform val)
+        scaler_X = MinMaxScaler()
+        X_train_flat = X_train.reshape(X_train.shape[0], -1)
+        X_val_flat = X_val.reshape(X_val.shape[0], -1)
+
+        X_train_scaled = scaler_X.fit_transform(X_train_flat).reshape(X_train.shape)
+        X_val_scaled = scaler_X.transform(X_val_flat).reshape(X_val.shape)
+
+        # Target scaling (fit on train, transform val)
+        scaler_y = MinMaxScaler()
+        y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
+        y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
+
+        return {
+            "X_train": X_train_scaled,
+            "X_val": X_val_scaled,
+            "y_train": y_train_scaled,
+            "y_val": y_val_scaled,
+            "scaler_y": scaler_y
+        }
+
+    
+    
     

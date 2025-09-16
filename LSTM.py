@@ -78,45 +78,6 @@ def train_and_evaluate_model(model, train_loader, val_data, optimizer, criterion
     return rmse, r2, acc, profit_index
 
 # -------------------------------
-# Dataset Preparation
-# -------------------------------
-def prepare_data(df, selected_features, window_size, forecast_window, ticker):
-    processor = DataPreprocessing(ticker=ticker)
-
-    # Create windowed features and labels
-    X, y = processor.create_windowed_data(
-        df[selected_features].values,
-        window_size,
-        forecast_window
-    )
-
-    # Split BEFORE scaling
-    X_train, X_val, _, y_train, y_val, _ = processor.split_dataset(X, y)
-
-    # Feature scaling (fit on train, transform val)
-    scaler_X = MinMaxScaler()
-    X_train_flat = X_train.reshape(X_train.shape[0], -1)
-    X_val_flat = X_val.reshape(X_val.shape[0], -1)
-
-    X_train_scaled = scaler_X.fit_transform(X_train_flat).reshape(X_train.shape)
-    X_val_scaled = scaler_X.transform(X_val_flat).reshape(X_val.shape)
-
-    # Target scaling (fit on train, transform val)
-    scaler_y = MinMaxScaler()
-    y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
-    y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
-
-    return {
-        "X_train": X_train_scaled,
-        "X_val": X_val_scaled,
-        "y_train": y_train_scaled,
-        "y_val": y_val_scaled,
-        "y_train_raw": y_train,
-        "y_val_raw": y_val,
-        "scaler_y": scaler_y
-    }
-
-# -------------------------------
 # Optuna Logging
 # -------------------------------
 optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
@@ -228,12 +189,10 @@ if __name__ == "__main__":
         for j, (window_size, forecast_window) in enumerate(window_forecast_combos):
             print(f"\n=== [{i+1}/{len(all_combinations)}] Combo: {indicator_combo}, (w={window_size}, f={forecast_window}) ===")
             
-            data = prepare_data(
-                df_with_all_indicators,
+            data = data_processor.prepare_data(
                 ['Close'] + list(indicator_combo),
-                window_size,
-                forecast_window,
-                ticker
+                window_size=window_size,
+                forecast_window=forecast_window
             )
 
             study = optuna.create_study(direction='maximize')
