@@ -28,81 +28,10 @@ if torch.cuda.is_available():
 else:
     print("Running on CPU")
 
-# Optuna logging
-optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
-optuna.logging.set_verbosity(optuna.logging.WARNING)
-
 # -------------------------------
-# CNN Model
+# Train & evaluate
 # -------------------------------
-class CNNModel(nn.Module):
-    def __init__(self, input_shape, filters, kernel_size, pooling_size, dropout_rate, activation):
-        super().__init__()
-        padding = (kernel_size - 1) // 2
-        self.conv1 = nn.Conv1d(input_shape[0], filters, kernel_size, padding=padding)
-        self.pool = nn.MaxPool1d(pooling_size)
-        self.dropout = nn.Dropout(dropout_rate)
-
-        self.activation_map = {"relu": nn.ReLU, "leaky_relu": nn.LeakyReLU}
-        self.act = self.activation_map[activation]()
-
-        with torch.no_grad():
-            dummy = torch.zeros(1, input_shape[0], input_shape[1])
-            x = self.pool(self.act(self.conv1(dummy)))
-            self.flattened_size = x.view(1, -1).shape[1]
-
-        self.fc = nn.Linear(self.flattened_size, 1)
-
-    def forward(self, x):
-        x = self.act(self.conv1(x))
-        x = self.pool(x)
-        x = self.dropout(x)
-        x = x.view(x.size(0), -1)
-        return self.fc(x)
-
-# -------------------------------
-# Data caching
-# -------------------------------
-def prepare_and_cache_data(df, selected_features, window_size, forecast_window, ticker):
-    cache_dir = f"cache/{ticker}_w{window_size}_f{forecast_window}"
-    os.makedirs(cache_dir, exist_ok=True)
-
-    paths = {
-        "X_train": f"{cache_dir}/X_train.npy",
-        "X_val": f"{cache_dir}/X_val.npy",
-        "y_train": f"{cache_dir}/y_train.npy",
-        "y_val": f"{cache_dir}/y_val.npy",
-        "scaler": f"{cache_dir}/scaler.npy"
-    }
-
-    if all(os.path.exists(p) for p in paths.values()):
-        scaler_y = np.load(paths["scaler"], allow_pickle=True).item()
-        return {**paths, "scaler_y": scaler_y}
-
-    processor = DataPreprocessing(ticker=ticker)
-    scaler = MinMaxScaler()
-    scaled_data = scaler.fit_transform(df[selected_features])
-
-    X, y = processor.create_windowed_data(scaled_data, window_size, forecast_window)
-    X_train, X_val, _, y_train, y_val, _ = processor.split_dataset(X, y)
-
-    scaler_y = MinMaxScaler()
-    y_train_scaled = scaler_y.fit_transform(y_train.reshape(-1, 1))
-    y_val_scaled = scaler_y.transform(y_val.reshape(-1, 1))
-
-    np.save(paths["X_train"], X_train)
-    np.save(paths["X_val"], X_val)
-    np.save(paths["y_train"], y_train_scaled)
-    np.save(paths["y_val"], y_val_scaled)
-    np.save(paths["scaler"], scaler_y, allow_pickle=True)
-
-    return {**paths, "scaler_y": scaler_y}
-
-# -------------------------------
-# Training & evaluation
-# -------------------------------
-def train_and_evaluate_model(model, train_loader, val_data, optimizer, criterion, scaler_y,
-                             forecast_window, epochs, patience=0.2):
+def train_and_evaluate_model(model, train_loader, val_data, optimizer, criterion, scaler_y, forecast_window, epochs, patience=0.2):
     best_val_loss = float('inf')
     epochs_no_improve = 0
     actual_patience = int(patience * epochs) if isinstance(patience, float) else patience
@@ -138,24 +67,32 @@ def train_and_evaluate_model(model, train_loader, val_data, optimizer, criterion
         y_val_true_unscaled = scaler_y.inverse_transform(val_data[1])
 
     r2 = EM.r2(y_val_true_unscaled, val_preds_unscaled)
-    rmse, mape, acc = (np.nan, np.nan, np.nan) if np.isnan(r2) or np.isinf(r2) else (
+    rmse, acc = (np.nan, np.nan, np.nan) if np.isnan(r2) or np.isinf(r2) else (
         EM.rmse(y_val_true_unscaled, val_preds_unscaled),
-        EM.mape(y_val_true_unscaled, val_preds_unscaled),
         EM.accuracy(y_val_true_unscaled, val_preds_unscaled)
     )
     profit_index = EM.profitability_index(y_val_true_unscaled, val_preds_unscaled, forecast_window)
+
+    del X_val_tensor, y_val_tensor
     torch.cuda.empty_cache()
-    return rmse, mape, r2, acc, profit_index
+    return rmse, r2, acc, profit_index
+
+
+# -------------------------------
+# Optuna Logging
+# -------------------------------
+optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
+optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 # -------------------------------
 # Optuna objective
 # -------------------------------
-def objective(trial, cached_data, selected_indicators, ticker, window_size, forecast_window):
-    X_train = np.load(cached_data["X_train"])
-    X_val = np.load(cached_data["X_val"])
-    y_train_scaled = np.load(cached_data["y_train"])
-    y_val_scaled = np.load(cached_data["y_val"])
-    scaler_y = cached_data["scaler_y"]
+def objective(trial, data, selected_indicators, ticker, window_size, forecast_window):
+    X_train = data["X_train"]
+    X_val = data["X_val"]
+    y_train_scaled = data["y_train"]
+    y_val_scaled = data["y_val"]
+    scaler_y = data["scaler_y"]
 
     hyperparams = {
         "filters": trial.suggest_categorical("filters", [32, 64, 128]),
@@ -171,7 +108,8 @@ def objective(trial, cached_data, selected_indicators, ticker, window_size, fore
     train_loader = DataLoader(
         TensorDataset(torch.tensor(X_train, dtype=torch.float32).permute(0, 2, 1),
                       torch.tensor(y_train_scaled, dtype=torch.float32)),
-        batch_size=hyperparams["batch_size"], shuffle=False
+        batch_size=hyperparams["batch_size"], 
+        shuffle=False
     )
 
     model = CNNModel(
@@ -186,53 +124,91 @@ def objective(trial, cached_data, selected_indicators, ticker, window_size, fore
     optimizer = optim.Adam(model.parameters(), lr=hyperparams["lr"])
     criterion = nn.MSELoss()
 
-    rmse, mape, r2, acc, profit_index = train_and_evaluate_model(
+    rmse, r2, acc, profit_index = train_and_evaluate_model(
         model, train_loader, (X_val, y_val_scaled), optimizer, criterion,
         scaler_y, forecast_window, hyperparams["epochs"]
     )
 
+    # Log results
     with open(f'stock_results/{ticker}_CNN_results.csv', 'a', newline='') as f:
         writer = csv.writer(f)
         writer.writerow([
             trial.number, ', '.join(selected_indicators),
-            hyperparams["filters"], hyperparams["kernel_size"], hyperparams["pooling_size"], hyperparams["dropout"],
+            hyperparams["filters"], hyperparams["kernel_size"], hyperparams["pooling_size"], 
+            hyperparams["dropout"],
             hyperparams["lr"], hyperparams["batch_size"],
             window_size, forecast_window, hyperparams["epochs"],
             hyperparams["activation"],
-            rmse, mape, r2, acc, profit_index
+            r2, acc, profit_index
         ])
 
     return -rmse if not np.isnan(rmse) and not np.isinf(rmse) else -1e10
+
+
+# -------------------------------
+# CNN Model
+# -------------------------------
+class CNNModel(nn.Module):
+    def __init__(self, input_shape, filters, kernel_size, pooling_size, dropout_rate, activation):
+        super().__init__()
+        padding = (kernel_size - 1) // 2
+        self.conv1 = nn.Conv1d(input_shape[0], filters, kernel_size, padding=padding)
+        self.pool = nn.MaxPool1d(pooling_size)
+        self.dropout = nn.Dropout(dropout_rate)
+
+        self.activation_map = {"relu": nn.ReLU, "leaky_relu": nn.LeakyReLU}
+        self.act = self.activation_map[activation]()
+
+        with torch.no_grad():
+            dummy = torch.zeros(1, input_shape[0], input_shape[1])
+            x = self.pool(self.act(self.conv1(dummy)))
+            self.flattened_size = x.view(1, -1).shape[1]
+
+        self.fc = nn.Linear(self.flattened_size, 1)
+
+    def forward(self, x):
+        x = self.act(self.conv1(x))
+        x = self.pool(x)
+        x = self.dropout(x)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
 
 # -------------------------------
 # Main execution
 # -------------------------------
 if __name__ == "__main__":
-    ticker = 'QCOM'
+    ticker = 'AAPL'
     os.makedirs('stock_results', exist_ok=True)
-    if not os.path.exists(f'stock_results/{ticker}_CNN_results.csv'):
+
+    result_file= f'stock_results/{ticker}_CNN_results.csv'
+    if not os.path.exists(result_file):
         with open(f'stock_results/{ticker}_CNN_results.csv', 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([
                 "Trial", "Indicators", "Filters", "Kernel Size", "Pooling Size", "Dropout",
                 "LR", "Batch Size", "Window Size", "Forecast Window", "Epochs", "Activation",
-                "RMSE", "MAPE", "R2", "Accuracy", "Profit Index"
+                "R2", "Accuracy", "Profit Index"
             ])
 
     data_processor = DataPreprocessing(ticker=ticker)
     df_with_all_indicators = data_processor.add_technical_indicators()
+
     os.makedirs('check', exist_ok=True)
     df_with_all_indicators.to_csv(f'check/{ticker}_CNN_downloaded_data.csv', index=True)
 
     selected_base_indicators = ['20MA', '50MA', 'RSI', 'MACD', 'Upper_BB', 'Lower_BB', 'CCI', 'ATR', 'Williams_%R', 'OBV']
     all_combinations = list(combinations(selected_base_indicators, 6))
-    window_forecast_combos = [(5, 1)] #[(60, 1), (60, 30)]
+    window_forecast_combos = [(60, 1), (60, 30), (5, 1)]
 
-    start_combo_index = 147 # Change to your desired start index
-    start_config_index = 0 # 0: (60,1), 1: (60,30)
+    start_combo_index = 0 # Change to your desired start index
+    start_config_index = 0  
+    # Step1: Remove lines until the end of last optuna cycle (should be "24")
+    # Step2: [Current CSV Line - 1 (Header)]/25 (Optuna Combination)/3(Window Combination)
+    # Step 3: Enter Values start_combo_index and window_forecast_combos
+    # Example 1: (15726-1)/25/3 == (629/3 or 209.6666), Therefore start_combo_index=209, window_forecast_combos =2
+    # Example 2: (15701-1)/25/3 == (628/3 or 209.3333), Therefore start_combo_index=209, window_forecast_combos =1
 
     for i, indicator_combo in enumerate(all_combinations):
-
 
         if i < start_combo_index:
             continue
@@ -243,21 +219,21 @@ if __name__ == "__main__":
                 continue
 
             print(f"\n=== [{i+1}/{len(all_combinations)}] Combo: {indicator_combo}, (w={window_size}, f={forecast_window}) ===")
-            cached_data = prepare_and_cache_data(
-                df_with_all_indicators,
+            data = data_processor.prepare_data(
                 ['Close'] + list(indicator_combo),
-                window_size,
-                forecast_window,
-                ticker
+                window_size=window_size,
+                forecast_window=forecast_window
             )
 
-            study = optuna.create_study(direction='maximize')  # No pruning
+            study = optuna.create_study(direction='maximize')
             study.optimize(
-                partial(objective, cached_data=cached_data, selected_indicators=indicator_combo,
-                        ticker=ticker, window_size=window_size, forecast_window=forecast_window),
+                partial(objective,
+                        data=data, 
+                        selected_indicators=indicator_combo,
+                        ticker=ticker, 
+                        window_size=window_size, 
+                        forecast_window=forecast_window),
                 n_trials=25
             )
 
-            print(f"  -> Best RMSE: {-study.best_trial.value:.4f}")
-
-    record_best_models(f'stock_results/{ticker}_CNN_results.csv')
+    record_best_models(result_file)

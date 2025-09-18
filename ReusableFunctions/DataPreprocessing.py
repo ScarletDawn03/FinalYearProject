@@ -17,8 +17,18 @@ class DataPreprocessing:
 
     def download_stock_data(self, ticker, start_date='2014-01-01', end_date='2024-12-31'):
         data = yf.download(ticker, start=start_date, end=end_date)
+
+        # Clean before indicator calculation
+        data.drop_duplicates(inplace=True)
+
+        # Filter out negative prices or volumes
+        price_cols = ['Open','High','Low','Close']
+        for col in price_cols:
+            data = data[data[col] >= 0]
+        data = data[data['Volume'] >= 0]
+        
         return data
-    
+        
     def remove_exdividend_and_earnings_dates(self, ticker):
         ticker_obj = yf.Ticker(ticker)
 
