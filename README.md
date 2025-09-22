@@ -1,4 +1,4 @@
-Stock Market Prediction using ML & DL Models
+A Study of Stock Market Prediction using Various ML & DL Technique with Various Datasets and Hyperparameters
 
 This repository contains the implementation and experimental analysis of Long Short-Term Memory (LSTM), Convolutional Neural Network (CNN), and Linear Regression (LR) models for stock market prediction. The project investigates the predictive performance of these models across different datasets, sectors, and trading volumes, with evaluation based on RMSE, MAE, R², Accuracy (within ±5% threshold), and Profitability Index as part of my Final Year Project.
 
@@ -33,13 +33,14 @@ source venv/bin/activate   # for Linux
 3. Install Dependencies where necessary
 pip install -r requirements.txt
 
-4. Additionally if you would like to use GPU acceleration, you can opt to set up CUDA (nvidia) or ROCm (AMD), at which the latter option is used in this research
+4. Additionally if you would like to use GPU acceleration, you can opt to set up CUDA (nvidia) or ROCm (AMD), at which the latter option is used in this research (ROCM6.3.2).
 
 
 
 📂 Project Structure
+├── best_results/                   # Top 5 configurations of models for the different combinations of forecast horizons are stored here
 ├── check/                          # Raw stock datasets & Technical Indicators feature set for manual checking. 
-├── Reusable Functions/             # Contains reusable classes of functions that are utilized in the models.
+├── ReusableFunctions/             # Contains reusable classes of functions that are utilized in the models.
 │   ├── DataPreprocessing.py        # LSTM, CNN, LR reusable functions (Preprocessing steps) are stored here.
 │   ├── EvaluationMetrics.py        # Helper functions (metrics).
 │   └── RecordBestModel.py          # Script to record top 5 configuration of model for 1 and 30 day forecast horizon; executed after each run of model
