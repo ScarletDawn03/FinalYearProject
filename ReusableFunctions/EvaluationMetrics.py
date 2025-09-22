@@ -27,25 +27,37 @@ class EvaluationMetrics:
         return (np.sum(percentage_diff <= threshold_percent) / len(y_true)) * 100
     
     @staticmethod
+    @staticmethod
     def profitability_index(y_true, y_pred, forecast_window, initial_capital=10000.0):
-        capital = initial_capital
-        position = 0
-        y_true = y_true.flatten()
-        y_pred = y_pred.flatten()
+       capital = initial_capital
+       position = 0
+       y_true = y_true.flatten()
+       y_pred = y_pred.flatten()
 
-        for i in range(len(y_pred) - forecast_window):
-            current_price = y_true[i]
-            predicted_future_price = y_pred[i]
+       i = 0
+       while i < len(y_pred) - forecast_window:
+           current_price = y_true[i]
+           predicted_future_price = y_pred[i]
 
-            if predicted_future_price > current_price and position == 0:
-                position = capital / current_price
-                capital = 0
-            elif predicted_future_price < current_price and position > 0:
-                capital = position * current_price
-                position = 0
+           # Buy if future price is predicted higher
+           if predicted_future_price > current_price and position == 0:
+               position = capital / current_price
+               capital = 0
+               # hold until forecast horizon
+               i += forecast_window  
 
-        if position > 0:
-            capital = position * y_true[-1]
+           # Sell if future price is predicted lower 
+           elif predicted_future_price < current_price and position > 0:
+               capital = position * current_price
+               position = 0
+               i += 1  
 
-        return capital / initial_capital
+           else:
+               i += 1  
+
+       # Final liquidation if still holding
+       if position > 0:
+           capital = position * y_true[-1]
+
+       return capital / initial_capital
 

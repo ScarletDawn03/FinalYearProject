@@ -135,7 +135,7 @@ def objective(trial, data, selected_indicators, ticker, window_size, forecast_wi
             r2, acc, profit_index
         ])
 
-    return -rmse if not np.isnan(rmse) and not np.isinf(rmse) else -1e10
+    return rmse if not np.isnan(rmse) and not np.isinf(rmse) else 1e10
 
 
 # -------------------------------
@@ -192,6 +192,7 @@ if __name__ == "__main__":
     # Step 3: Enter Values start_combo_index and window_forecast_combos
     # Example 1: (15726-1)/25/3 == (629/3 or 209.6666), Therefore start_combo_index=209, window_forecast_combos =2
     # Example 2: (15701-1)/25/3 == (628/3 or 209.3333), Therefore start_combo_index=209, window_forecast_combos =1
+    # Example 3: (15676-1)/25/3 == (627/3 or 209), Therefore start_combo_index=209, window_forecast_combos =0
 
 
     for i, indicator_combo in enumerate(all_combinations):
@@ -211,7 +212,7 @@ if __name__ == "__main__":
                 forecast_window=forecast_window
             )
 
-            study = optuna.create_study(direction='maximize')
+            study = optuna.create_study(direction='minimize')
             study.optimize(
                 partial(objective,
                         data=data,

@@ -135,7 +135,7 @@ def objective(trial, data, selected_indicators, ticker, window_size, forecast_wi
             r2, acc, profit_index
         ])
 
-    return -rmse if not np.isnan(rmse) and not np.isinf(rmse) else -1e10
+    return rmse if not np.isnan(rmse) and not np.isinf(rmse) else 1e10
 
 
 # -------------------------------
@@ -195,7 +195,7 @@ if __name__ == "__main__":
                 forecast_window=forecast_window
             )
 
-            study = optuna.create_study(direction='maximize')
+            study = optuna.create_study(direction='minimize')
             study.optimize(
                 partial(objective,
                         data=data,
