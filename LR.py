@@ -25,12 +25,12 @@ def train_and_evaluate_linear_model(X_train, y_train, X_val, y_val, scaler_y, fo
     model = LinearRegression(fit_intercept=True)
     model.fit(X_train_flat, y_train)
 
-    # 🔹 Training predictions
+    # Training predictions
     train_preds_scaled = model.predict(X_train_flat)
     train_preds_unscaled = scaler_y.inverse_transform(train_preds_scaled.reshape(-1, 1))
     y_train_true_unscaled = scaler_y.inverse_transform(y_train.reshape(-1, 1))
 
-    # 🔹 Validation predictions
+    # Validation predictions
     val_preds_scaled = model.predict(X_val_flat)
     val_preds_unscaled = scaler_y.inverse_transform(val_preds_scaled.reshape(-1, 1))
     y_val_true_unscaled = scaler_y.inverse_transform(y_val.reshape(-1, 1))
